@@ -1,0 +1,3 @@
+-- Intentionally empty. Test users and owner assignments must not be committed.
+-- Use public.create_workspace() as an authenticated user, or copy and customize
+-- templates/initialize_first_owner.sql in a trusted local admin session.

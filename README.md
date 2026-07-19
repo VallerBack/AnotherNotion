@@ -1,21 +1,17 @@
-当前仓库是 AnotherNotion。
+数据库设计确认后，请实施数据库 migration。
 
-请先完成第一阶段工程初始化：
-
-1. 在当前仓库根目录初始化 React + TypeScript + Vite 项目。
-2. 使用 npm。
-3. 启用 TypeScript strict mode。
-4. 安装 @supabase/supabase-js。
-5. 安装并配置 ESLint。
-6. 创建 src/lib/supabase.ts，读取：
-   - VITE_SUPABASE_URL
-   - VITE_SUPABASE_PUBLISHABLE_KEY
-7. 如果环境变量缺失，页面应显示清晰的配置错误。
-8. 保留现有 .env.local，不读取或输出其中的真实值。
-9. 创建安全的 .env.example 和 .gitignore。
-10. 在 vite.config.ts 中为 GitHub Pages 设置 base: '/AnotherNotion/'。
-11. 路由优先使用 HashRouter，避免 GitHub Pages 刷新后出现 404。
-12. 创建一个最简单的启动页，显示 AnotherNotion 和 Supabase 配置状态。
-13. 运行 npm install、npm run lint 和 npm run build。
-14. 暂时不要创建数据库表，不要运行 SQL，不要执行 supabase db push。
-15. 完成后汇报修改文件、测试结果和下一阶段计划。
+要求：
+- 使用 supabase/migrations 目录
+- 创建一个清晰命名的 initial_schema migration
+- migration 包含表、约束、索引、触发器、函数和 RLS
+- 不向 anon 开放任何业务表
+- authenticated 的权限需要同时经过 RLS
+- workspace_members 的角色修改只能由 owner 完成
+- 所有 security definer 函数固定 search_path
+- profile trigger 失败时应有清晰原因
+- 生成 TypeScript 数据库类型或对应接口
+- 创建 docs/database.md 解释数据模型
+- 创建 docs/security.md 解释每条 RLS policy
+- 创建一次性 owner 初始化 SQL 模板，模板中不要包含真实邮箱
+- 不要执行 db push
+- 完成后运行 lint、test 和 build

@@ -71,18 +71,6 @@ begin
     end if;
   end if;
 
-  if exists (
-    select 1
-    from public.workspace_members as wm
-    where wm.workspace_id = v_workspace_id
-      and wm.role = 'owner'::public.workspace_role
-      and wm.user_id <> v_user_id
-  ) then
-    raise exception using
-      errcode = '42501',
-      message = 'The AnotherNotion workspace already has a different owner';
-  end if;
-
   insert into public.workspace_members (
     workspace_id,
     user_id,
@@ -92,7 +80,7 @@ begin
   values (
     v_workspace_id,
     v_user_id,
-    'owner'::public.workspace_role,
+    'member'::public.workspace_role,
     v_user_id
   )
   on conflict (workspace_id, user_id) do update
@@ -111,4 +99,4 @@ from public.workspaces as w
 join public.workspace_members as wm on wm.workspace_id = w.id
 join auth.users as u on u.id = wm.user_id
 where w.name = 'AnotherNotion'
-  and wm.role = 'owner'::public.workspace_role;
+order by u.email;

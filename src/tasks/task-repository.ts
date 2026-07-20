@@ -4,7 +4,6 @@ import type {
   TaskPriority,
   TaskScheduleKind,
   TaskStatus,
-  WorkspaceRole,
 } from '../types/database'
 
 export type TaskView = 'today' | 'calendar' | 'all' | 'mine' | 'trash'
@@ -35,7 +34,6 @@ export type WorkspaceLabel = { id: string; name: string; color: string }
 export type WorkspaceMember = {
   userId: string
   displayName: string
-  role: WorkspaceRole
 }
 export type TaskComment = {
   id: string
@@ -55,9 +53,13 @@ export interface TaskRepository {
   permanentlyDeleteTask(taskId: string): Promise<void>
   listLabels(workspaceId: string): Promise<WorkspaceLabel[]>
   createLabel(workspaceId: string, userId: string, name: string, color: string): Promise<void>
+  updateLabel(labelId: string, name: string, color: string): Promise<void>
+  deleteLabel(labelId: string): Promise<void>
   listMembers(workspaceId: string): Promise<WorkspaceMember[]>
   listComments(workspaceId: string, taskId: string): Promise<TaskComment[]>
   addComment(workspaceId: string, taskId: string, userId: string, bodyMd: string): Promise<void>
+  updateComment(commentId: string, bodyMd: string): Promise<void>
+  deleteComment(commentId: string): Promise<void>
 }
 
 type TaskRow = Database['public']['Tables']['tasks']['Row']
@@ -74,7 +76,7 @@ export function toDataError(error: { message: string; code?: string }) {
     error.code === 'PGRST301' ||
     /permission|row-level security|jwt/i.test(error.message)
   ) {
-    return new Error('没有权限执行此操作，请重新登录或联系工作区 owner。')
+    return new Error('没有权限执行此操作，请重新登录或确认你仍属于该工作区。')
   }
   if (/fetch|network|connect/i.test(error.message)) {
     return new Error('网络连接失败，请稍后重试。')
@@ -201,10 +203,9 @@ export class SupabaseTaskRepository implements TaskRepository {
   }
 
   async softDeleteTask(taskId: string) {
-    const { error } = await this.client
-      .from('tasks')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('id', taskId)
+    const { error } = await this.client.rpc('soft_delete_task', {
+      p_task_id: taskId,
+    })
     if (error) throw toDataError(error)
   }
 
@@ -239,10 +240,23 @@ export class SupabaseTaskRepository implements TaskRepository {
     if (error) throw toDataError(error)
   }
 
+  async updateLabel(labelId: string, name: string, color: string) {
+    const { error } = await this.client
+      .from('labels')
+      .update({ name: name.trim(), color })
+      .eq('id', labelId)
+    if (error) throw toDataError(error)
+  }
+
+  async deleteLabel(labelId: string) {
+    const { error } = await this.client.from('labels').delete().eq('id', labelId)
+    if (error) throw toDataError(error)
+  }
+
   async listMembers(workspaceId: string) {
     const membershipResponse = await this.client
       .from('workspace_members')
-      .select('user_id, role')
+      .select('user_id')
       .eq('workspace_id', workspaceId)
     const memberships = ensure(membershipResponse.data, membershipResponse.error)
     if (memberships.length === 0) return []
@@ -255,7 +269,6 @@ export class SupabaseTaskRepository implements TaskRepository {
     return memberships.map((membership) => ({
       userId: membership.user_id,
       displayName: names.get(membership.user_id) ?? '未知成员',
-      role: membership.role,
     }))
   }
 
@@ -291,6 +304,19 @@ export class SupabaseTaskRepository implements TaskRepository {
       author_id: userId,
       body_md: bodyMd.trim(),
     })
+    if (error) throw toDataError(error)
+  }
+
+  async updateComment(commentId: string, bodyMd: string) {
+    const { error } = await this.client
+      .from('comments')
+      .update({ body_md: bodyMd.trim() })
+      .eq('id', commentId)
+    if (error) throw toDataError(error)
+  }
+
+  async deleteComment(commentId: string) {
+    const { error } = await this.client.from('comments').delete().eq('id', commentId)
     if (error) throw toDataError(error)
   }
 

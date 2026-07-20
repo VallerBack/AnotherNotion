@@ -1,5 +1,7 @@
 # AnotherNotion RLS 与权限说明
 
+> 当前有效模型（`20260720000100_single_workspace_equal_members.sql`）：系统只有一个工作区，`workspace_members` 只表示是否属于该工作区。`role` 字段仅为兼容历史数据而保留，不参与前端、RLS 或 RPC 授权。下文早期 policy 名称中的 `owner`/`author` 会由该增量 migration 覆盖；最终权限一律以 membership 为准。
+
 七张业务表全部启用并强制 RLS。`anon` 被撤销所有业务表和函数权限，也没有任何针对 anon 的 policy。`authenticated` 先取得最小表/列权限，每一行访问仍必须通过 RLS。
 
 ## Policy 清单

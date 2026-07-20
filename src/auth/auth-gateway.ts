@@ -3,7 +3,7 @@ import type {
   Session,
   SupabaseClient,
 } from '@supabase/supabase-js'
-import type { Database, WorkspaceRole } from '../types/database'
+import type { Database } from '../types/database'
 
 export type AuthSession = Pick<Session, 'access_token' | 'expires_at' | 'user'>
 
@@ -16,7 +16,6 @@ export type UserProfile = {
 export type WorkspaceMembership = {
   workspaceId: string
   workspaceName: string
-  role: WorkspaceRole
 }
 
 export type AuthChange = {
@@ -94,7 +93,7 @@ export class SupabaseAuthGateway implements AuthGateway {
   async loadMemberships(userId: string) {
     const membershipResponse = await this.client
       .from('workspace_members')
-      .select('workspace_id, role')
+      .select('workspace_id')
       .eq('user_id', userId)
     const memberships = requireData(
       membershipResponse.data,
@@ -113,7 +112,6 @@ export class SupabaseAuthGateway implements AuthGateway {
     return memberships.map((membership) => ({
       workspaceId: membership.workspace_id,
       workspaceName: names.get(membership.workspace_id) ?? '未命名工作区',
-      role: membership.role,
     }))
   }
 

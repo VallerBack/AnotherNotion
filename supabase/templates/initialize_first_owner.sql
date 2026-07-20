@@ -71,17 +71,6 @@ begin
     end if;
   end if;
 
-  if exists (
-    select 1
-    from public.workspace_members as wm
-    where wm.workspace_id = v_workspace_id
-      and wm.role = 'owner'
-      and wm.user_id <> v_owner_id
-  ) then
-    raise exception
-      'The AnotherNotion workspace already has a different owner; refusing to replace it';
-  end if;
-
   select count(*) into v_member_count
   from public.workspace_members as wm
   where wm.workspace_id = v_workspace_id;
@@ -103,11 +92,11 @@ begin
   values (
     v_workspace_id,
     v_owner_id,
-    'owner',
+    'member',
     v_owner_id
   )
   on conflict (workspace_id, user_id) do update
-  set role = 'owner';
+  set role = 'member';
 
   raise notice 'AnotherNotion owner initialization complete. Workspace ID: %, owner user ID: %',
     v_workspace_id,

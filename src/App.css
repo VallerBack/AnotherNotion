@@ -450,6 +450,51 @@ h2 {
   border-radius: 50%;
 }
 
+.calendar-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 22px;
+}
+
+.calendar-filters label {
+  display: grid;
+  gap: 5px;
+  color: #62625d;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.calendar-filters select {
+  min-width: 150px;
+  padding: 8px 10px;
+  border: 1px solid #cecec8;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.calendar-panel .fc {
+  padding: 18px;
+  border: 1px solid #e1e1dc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.calendar-panel .fc .fc-button-primary {
+  border-color: #343430;
+  background: #343430;
+}
+
+.calendar-panel .fc .fc-event {
+  cursor: pointer;
+}
+
+.calendar-panel .fc .fc-daygrid-day-number,
+.calendar-panel .fc .fc-col-header-cell-cushion {
+  color: #363632;
+  text-decoration: none;
+}
+
 .metric {
   display: flex;
   align-items: baseline;
@@ -530,5 +575,34 @@ code {
 
   .field--wide {
     grid-column: auto;
+  }
+
+  .calendar-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .calendar-filters label:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .calendar-filters select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .calendar-panel .fc {
+    padding: 8px;
+    font-size: 0.82rem;
+  }
+
+  .calendar-panel .fc .fc-header-toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .calendar-panel .fc .fc-toolbar-title {
+    font-size: 1.15rem;
   }
 }

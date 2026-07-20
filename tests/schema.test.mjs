@@ -11,6 +11,14 @@ const sql = (
     migrationFiles.map((file) => readFile(new URL(file, migrationsUrl), 'utf8')),
   )
 ).join('\n')
+const equalMemberSql = await readFile(
+  new URL('20260720000100_single_workspace_equal_members.sql', migrationsUrl),
+  'utf8',
+)
+const softDeleteSql = await readFile(
+  new URL('20260720000200_soft_delete_task_rpc.sql', migrationsUrl),
+  'utf8',
+)
 const businessTables = [
   'profiles',
   'workspaces',
@@ -46,8 +54,14 @@ test('membership writes are exposed only through guarded functions', () => {
   assert.doesNotMatch(sql, /create policy workspace_members_(insert|update|delete)/i)
   assert.match(sql, /create function public\.add_workspace_member/i)
   assert.match(sql, /v_count >= 10/i)
-  assert.match(sql, /create function public\.transfer_workspace_ownership/i)
-  assert.match(sql, /private\.is_workspace_owner\(p_workspace_id, v_current_owner\)/i)
+  assert.match(
+    equalMemberSql,
+    /add_workspace_member[\s\S]*?private\.is_workspace_member\(p_workspace_id, v_caller\)/i,
+  )
+  assert.match(
+    equalMemberSql,
+    /remove_workspace_member[\s\S]*?private\.is_workspace_member\(p_workspace_id\)/i,
+  )
 })
 
 test('every update policy has an explicit with check', () => {
@@ -91,15 +105,42 @@ test('destructive cascades are not reachable through workspace or task delete po
   assert.doesNotMatch(sql, /grant delete on public\.tasks/i)
 })
 
-test('permanent task deletion is restricted to an owner-only definer function', () => {
+test('permanent task deletion is available to every workspace member', () => {
   assert.match(
-    sql,
-    /create function public\.permanently_delete_task[\s\S]*?private\.is_workspace_owner\(t\.workspace_id\)/i,
+    equalMemberSql,
+    /create or replace function public\.permanently_delete_task[\s\S]*?private\.is_workspace_member\(t\.workspace_id\)/i,
   )
   assert.match(
-    sql,
+    equalMemberSql,
     /permanently_delete_task[\s\S]*?security definer[\s\S]*?set search_path = pg_catalog/i,
   )
+})
+
+test('latest authorization model does not use role values or disable RLS', () => {
+  assert.doesNotMatch(equalMemberSql, /\brole\s*=|\brole\s*<>|\brole\s+in\s*\(/i)
+  assert.doesNotMatch(equalMemberSql, /disable row level security/i)
+  assert.doesNotMatch(equalMemberSql, /\bto\s+anon\b/i)
+})
+
+test('all shared-content mutations use workspace membership', () => {
+  assert.match(equalMemberSql, /workspaces_update_member[\s\S]*?is_workspace_member\(id\)/i)
+  assert.match(equalMemberSql, /comments_update_member[\s\S]*?is_workspace_member\(workspace_id\)/i)
+  assert.match(equalMemberSql, /comments_delete_member[\s\S]*?is_workspace_member\(workspace_id\)/i)
+  assert.match(sql, /tasks_update_member[\s\S]*?is_workspace_member\(workspace_id\)/i)
+  assert.match(sql, /labels_update_member[\s\S]*?is_workspace_member\(workspace_id\)/i)
+  assert.match(sql, /labels_delete_member[\s\S]*?is_workspace_member\(workspace_id\)/i)
+  assert.match(sql, /task_labels_insert_member[\s\S]*?is_workspace_member\(workspace_id\)/i)
+  assert.match(sql, /restore_task[\s\S]*?is_workspace_member\(t\.workspace_id\)/i)
+})
+
+test('soft deletion uses a membership-guarded RPC', () => {
+  assert.match(
+    softDeleteSql,
+    /create or replace function public\.soft_delete_task[\s\S]*?private\.is_workspace_member\(t\.workspace_id\)/i,
+  )
+  assert.match(softDeleteSql, /security definer[\s\S]*?set search_path = pg_catalog/i)
+  assert.match(softDeleteSql, /grant execute on function public\.soft_delete_task\(uuid\) to authenticated/i)
+  assert.doesNotMatch(softDeleteSql, /\bto anon\b/i)
 })
 
 test('owner template contains placeholders only', async () => {

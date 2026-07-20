@@ -17,14 +17,13 @@ const session = {
 } as AuthSession
 
 class AuthMock implements AuthGateway {
-  role: 'owner' | 'member' = 'member'
   getSession = vi.fn(async () => session)
   onAuthStateChange(listener: (change: AuthChange) => void) { void listener; return () => undefined }
   signIn = vi.fn(async () => session)
   signOut = vi.fn(async () => undefined)
   updatePassword = vi.fn(async () => undefined)
   loadProfile = vi.fn(async () => ({ id: 'user-1', displayName: '成员', timezone: 'UTC' }))
-  loadMemberships = vi.fn(async () => [{ workspaceId: 'workspace-1', workspaceName: 'AnotherNotion', role: this.role }])
+  loadMemberships = vi.fn(async () => [{ workspaceId: 'workspace-1', workspaceName: 'AnotherNotion' }])
   loadTaskCount = vi.fn(async () => 0)
 }
 
@@ -66,9 +65,13 @@ class TaskRepositoryMock implements TaskRepository {
   permanentlyDeleteTask = vi.fn(async () => undefined)
   listLabels = vi.fn(async () => [])
   createLabel = vi.fn(async () => undefined)
-  listMembers = vi.fn(async () => [{ userId: 'user-1', displayName: '成员', role: 'member' as const }])
+  updateLabel = vi.fn(async () => undefined)
+  deleteLabel = vi.fn(async () => undefined)
+  listMembers = vi.fn(async () => [{ userId: 'user-1', displayName: '成员' }])
   listComments = vi.fn(async () => [])
   addComment = vi.fn(async () => undefined)
+  updateComment = vi.fn(async () => undefined)
+  deleteComment = vi.fn(async () => undefined)
 }
 
 afterEach(() => {
@@ -107,13 +110,42 @@ describe('核心任务模块', () => {
 
     expect(await screen.findByRole('button', { name: '恢复' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '永久删除' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '恢复' }))
+    await waitFor(() => expect(memberRepository.restoreTask).toHaveBeenCalledWith('task-1'))
     await user.click(await screen.findByRole('button', { name: '永久删除' }))
     await waitFor(() => expect(memberRepository.permanentlyDeleteTask).toHaveBeenCalledWith('task-1'))
   })
 
+  it('普通工作区成员可以完成、编辑和回收任意任务', async () => {
+    window.location.hash = '#/tasks'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [task]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: '完成' }))
+    await waitFor(() => expect(repository.updateTask).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({ status: 'done' }),
+    ))
+
+    await user.click(screen.getByRole('button', { name: '编辑' }))
+    const title = screen.getByLabelText('标题')
+    await user.clear(title)
+    await user.type(title, '更新后的任务')
+    await user.click(screen.getByRole('button', { name: '保存任务' }))
+    await waitFor(() => expect(repository.updateTask).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({ title: '更新后的任务' }),
+    ))
+
+    await user.click(screen.getByRole('button', { name: '移到回收站' }))
+    await waitFor(() => expect(repository.softDeleteTask).toHaveBeenCalledWith('task-1'))
+  })
+
   it('显示 RLS 权限错误并提供重试入口', async () => {
     const repository = new TaskRepositoryMock()
-    repository.error = new Error('没有权限执行此操作，请重新登录或联系工作区 owner。')
+    repository.error = new Error('没有权限执行此操作，请重新登录或确认你仍属于该工作区。')
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('没有权限执行此操作')

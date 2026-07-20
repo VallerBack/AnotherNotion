@@ -1,5 +1,7 @@
 # AnotherNotion 数据库
 
+当前采用单工作区、所有成员同权模型。`workspace_members.role` 保留但不参与任何权限决定；所有共享内容操作都验证 `auth.uid()` 对应的 membership。
+
 可执行结构位于 `supabase/migrations/20260719000100_initial_schema.sql`。本阶段只创建 migration 文件，不会自动连接或推送远程数据库。
 
 ## 数据模型

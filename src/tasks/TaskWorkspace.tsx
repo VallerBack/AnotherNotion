@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/auth-context'
 import type {
@@ -10,7 +11,7 @@ import type {
   WorkspaceMember,
 } from './task-repository'
 
-const emptyDraft: TaskDraft = {
+export const emptyDraft: TaskDraft = {
   title: '',
   descriptionMd: '',
   status: 'todo',
@@ -43,7 +44,7 @@ function fromLocalDateTime(value: string) {
   return value ? new Date(value).toISOString() : null
 }
 
-function taskToDraft(task: TaskRecord): TaskDraft {
+export function taskToDraft(task: TaskRecord): TaskDraft {
   return {
     title: task.title,
     descriptionMd: task.descriptionMd,
@@ -72,21 +73,23 @@ function formatSchedule(task: TaskRecord) {
   return '无日期'
 }
 
-function TaskEditor({
+export function TaskEditor({
   task,
+  initialDraft,
   labels,
   members,
   onSave,
   onCancel,
 }: {
   task: TaskRecord | null
+  initialDraft?: TaskDraft
   labels: WorkspaceLabel[]
   members: WorkspaceMember[]
   onSave(draft: TaskDraft): Promise<void>
   onCancel(): void
 }) {
   const [draft, setDraft] = useState<TaskDraft>(() =>
-    task ? taskToDraft(task) : emptyDraft,
+    task ? taskToDraft(task) : initialDraft ?? emptyDraft,
   )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -230,11 +233,37 @@ function Comments({ repository, task }: { repository: TaskRepository; task: Task
     }
   }
 
+  async function editComment(comment: TaskComment) {
+    const nextBody = window.prompt('编辑评论', comment.bodyMd)
+    if (nextBody === null || !nextBody.trim()) return
+    try {
+      await repository.updateComment(comment.id, nextBody)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '编辑评论失败')
+    }
+  }
+
+  async function removeComment(commentId: string) {
+    try {
+      await repository.deleteComment(commentId)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '删除评论失败')
+    }
+  }
+
   return <div className="comments">
     <h3>评论</h3>
     {error && <div className="notice notice--error" role="alert">{error}</div>}
     {comments.length === 0 ? <p className="muted">还没有评论。</p> : comments.map((comment) => (
-      <article key={comment.id} className="comment"><strong>{comment.authorName}</strong><p>{comment.bodyMd}</p></article>
+      <article key={comment.id} className="comment">
+        <strong>{comment.authorName}</strong><p>{comment.bodyMd}</p>
+        <div className="task-actions">
+          <button className="link-button" onClick={() => void editComment(comment)}>编辑评论</button>
+          <button className="link-button" onClick={() => void removeComment(comment.id)}>删除评论</button>
+        </div>
+      </article>
     ))}
     <form className="comment-form" onSubmit={submit}>
       <textarea aria-label="添加评论" required value={body} onChange={(event) => setBody(event.target.value)} />
@@ -358,6 +387,18 @@ export function LabelsPage({ repository }: { repository: TaskRepository }) {
     } catch (reason) { setError(reason instanceof Error ? reason.message : '创建标签失败') }
   }
 
+  async function editLabel(label: WorkspaceLabel) {
+    const nextName = window.prompt('编辑标签名称', label.name)
+    if (nextName === null || !nextName.trim()) return
+    try { await repository.updateLabel(label.id, nextName, label.color); await load() }
+    catch (reason) { setError(reason instanceof Error ? reason.message : '编辑标签失败') }
+  }
+
+  async function removeLabel(labelId: string) {
+    try { await repository.deleteLabel(labelId); await load() }
+    catch (reason) { setError(reason instanceof Error ? reason.message : '删除标签失败') }
+  }
+
   return <section className="content-panel"><p className="eyebrow">ORGANIZE</p><h2>Labels</h2>
     {error && <div className="notice notice--error" role="alert">{error}</div>}
     <form className="inline-form" onSubmit={submit}>
@@ -365,6 +406,10 @@ export function LabelsPage({ repository }: { repository: TaskRepository }) {
       <input aria-label="标签颜色" type="color" value={color} onChange={(event) => setColor(event.target.value)} />
       <button className="button button--primary">创建标签</button>
     </form>
-    <div className="label-list">{labels.length === 0 ? <p className="empty-state">尚无标签。</p> : labels.map((label) => <span key={label.id} className="label-chip"><i style={{ background: label.color }} />{label.name}</span>)}</div>
+    <div className="label-list">{labels.length === 0 ? <p className="empty-state">尚无标签。</p> : labels.map((label) => <span key={label.id} className="label-chip">
+      <i style={{ background: label.color }} />{label.name}
+      <button className="link-button" onClick={() => void editLabel(label)}>编辑</button>
+      <button className="link-button" onClick={() => void removeLabel(label.id)}>删除</button>
+    </span>)}</div>
   </section>
 }

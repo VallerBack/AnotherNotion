@@ -57,7 +57,6 @@ class MockAuthGateway implements AuthGateway {
 const membership: WorkspaceMembership = {
   workspaceId: 'workspace-1',
   workspaceName: '产品小组',
-  role: 'member',
 }
 
 afterEach(() => {

@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from './auth/auth-context'
 import { getAuthErrorMessage } from './auth/auth-errors'
 import { SupabaseAuthGateway, type AuthGateway } from './auth/auth-gateway'
 import { LabelsPage, TaskBoard } from './tasks/TaskWorkspace'
+import { CalendarPage } from './tasks/CalendarPage'
 import {
   SupabaseTaskRepository,
   type TaskRepository,
@@ -193,7 +194,7 @@ function Dashboard() {
     <section className="workspace-panel">
       <p className="eyebrow">CURRENT WORKSPACE</p>
       <h2>{workspace.workspaceName}</h2>
-      <p className="muted">身份：{workspace.role === 'owner' ? 'Owner' : 'Member'}</p>
+      <p className="muted">共享工作区成员</p>
       {error ? (
         <div className="notice notice--error" role="alert">{error}</div>
       ) : (
@@ -287,7 +288,7 @@ function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
         <div className="workspace-content"><Routes>
           <Route path="/" element={<Navigate to="/today" replace />} />
           <Route path="/today" element={<TaskBoard repository={taskRepository} view="today" />} />
-          <Route path="/calendar" element={<TaskBoard repository={taskRepository} view="calendar" />} />
+          <Route path="/calendar" element={<CalendarPage repository={taskRepository} />} />
           <Route path="/tasks" element={<TaskBoard repository={taskRepository} view="all" />} />
           <Route path="/my-tasks" element={<TaskBoard repository={taskRepository} view="mine" />} />
           <Route path="/trash" element={<TaskBoard repository={taskRepository} view="trash" />} />

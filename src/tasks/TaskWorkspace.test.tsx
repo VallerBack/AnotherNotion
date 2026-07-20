@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -204,7 +204,7 @@ describe('核心任务模块', () => {
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('link', { name: '查看任务：准备发布' }))
+    fireEvent.click(await screen.findByRole('link', { name: '查看任务：准备发布' }))
     expect(await screen.findByRole('heading', { name: '准备发布' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '← 返回' }))
 

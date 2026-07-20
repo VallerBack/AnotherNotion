@@ -9,7 +9,7 @@ import { DateTime } from 'luxon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE } from '../lib/datetime'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { TaskEditor, emptyDraft, taskToDraft } from './TaskWorkspace'
 import type {
   TaskDraft,
@@ -136,6 +136,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const userId = session?.user.id
   const workspace = memberships[0]
   const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
@@ -285,12 +286,27 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
           dateClick={dateClick}
           eventContent={(info) => {
             const task = (info.event.extendedProps as CalendarEventProps).task
-            return <Link
+            const openDetails = () => navigate(`/tasks/${task.id}`, {
+              state: { from: `${location.pathname}${location.search}`, scrollY: window.scrollY, cachedTask: task },
+            })
+            return <span
               className="calendar-task-link"
-              to={`/tasks/${task.id}`}
-              state={{ from: `${location.pathname}${location.search}`, scrollY: window.scrollY, cachedTask: task }}
+              role="link"
+              tabIndex={0}
               aria-label={`查看任务：${task.title}`}
-            >{info.event.title}</Link>
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                openDetails()
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  openDetails()
+                }
+              }}
+            >{info.event.title}</span>
           }}
           eventDrop={(info) => void eventDrop(info)}
           height="auto"

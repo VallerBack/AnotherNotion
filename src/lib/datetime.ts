@@ -23,5 +23,5 @@ export function zonedInputToUtc(value: string, timezone = DEFAULT_TIMEZONE) {
 export function formatInTimezone(value: string | null, timezone = DEFAULT_TIMEZONE) {
   if (!value) return '未设置'
   const dateTime = DateTime.fromISO(value, { setZone: true }).setZone(timezone)
-  return dateTime.isValid ? dateTime.toLocaleString(DateTime.DATETIME_MED) : '时间格式无效'
+  return dateTime.isValid ? dateTime.setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED) : '时间格式无效'
 }

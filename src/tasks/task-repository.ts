@@ -24,13 +24,16 @@ export type TaskRecord = {
   startAt: string | null
   dueDate: string | null
   dueAt: string | null
+  createdBy: string | null
+  createdAt: string
+  updatedAt: string
   deletedAt: string | null
   labelIds: string[]
 }
 
 export type TaskDraft = Omit<
   TaskRecord,
-  'id' | 'workspaceId' | 'deletedAt' | 'labelIds'
+  'id' | 'workspaceId' | 'createdBy' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'labelIds'
 > & { labelIds: string[] }
 
 export type WorkspaceLabel = { id: string; name: string; color: string }
@@ -61,6 +64,7 @@ export type TaskReminder = {
 
 export interface TaskRepository {
   listTasks(workspaceId: string, userId: string, view: TaskView, timezone?: string): Promise<TaskRecord[]>
+  getTask(workspaceId: string, taskId: string): Promise<TaskRecord | null>
   createTask(workspaceId: string, userId: string, draft: TaskDraft, reminder?: TaskReminderDraft): Promise<TaskRecord>
   updateTask(taskId: string, draft: TaskDraft, reminder?: TaskReminderDraft): Promise<void>
   softDeleteTask(taskId: string): Promise<void>
@@ -119,6 +123,9 @@ function mapTask(row: TaskRow, labelIds: string[] = []): TaskRecord {
     startAt: row.start_at,
     dueDate: row.due_date?.slice(0, 10) ?? null,
     dueAt: row.due_at,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
     labelIds,
   }
@@ -189,6 +196,34 @@ export class SupabaseTaskRepository implements TaskRepository {
     if (view === 'mine') return tasks.filter((task) => task.assigneeId === userId)
     if (view === 'today') return tasks.filter((task) => isToday(task, timezone))
     return tasks
+  }
+
+  async getTask(workspaceId: string, taskId: string) {
+    const activeResponse = await this.client
+      .from('tasks')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('id', taskId)
+      .maybeSingle()
+    if (activeResponse.error) throw toDataError(activeResponse.error)
+
+    let row = activeResponse.data
+    if (!row) {
+      const deletedResponse = await this.client.rpc('list_deleted_tasks', {
+        p_workspace_id: workspaceId,
+      })
+      row = ensure(deletedResponse.data, deletedResponse.error)
+        .find((task) => task.id === taskId) ?? null
+    }
+    if (!row) return null
+
+    const labelsResponse = await this.client
+      .from('task_labels')
+      .select('label_id')
+      .eq('workspace_id', workspaceId)
+      .eq('task_id', taskId)
+    const labelIds = ensure(labelsResponse.data, labelsResponse.error).map((link) => link.label_id)
+    return mapTask(row, labelIds)
   }
 
   async createTask(workspaceId: string, userId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {

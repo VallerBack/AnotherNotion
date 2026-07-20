@@ -4,11 +4,12 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin, { type DateClickArg } from '@fullcalendar/interaction'
 import luxonPlugin from '@fullcalendar/luxon3'
-import type { EventClickArg, EventDropArg, EventInput } from '@fullcalendar/core'
+import type { EventDropArg, EventInput } from '@fullcalendar/core'
 import { DateTime } from 'luxon'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE } from '../lib/datetime'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { TaskEditor, emptyDraft, taskToDraft } from './TaskWorkspace'
 import type {
   TaskDraft,
@@ -134,13 +135,15 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const { session, profile, memberships } = useAuth()
   const userId = session?.user.id
   const workspace = memberships[0]
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [reminderRecipients, setReminderRecipients] = useState<ReminderRecipient[]>([])
-  const [status, setStatus] = useState('all')
-  const [assignee, setAssignee] = useState('all')
-  const [label, setLabel] = useState('all')
+  const status = searchParams.get('status') ?? 'all'
+  const assignee = searchParams.get('assignee') ?? 'all'
+  const label = searchParams.get('label') ?? 'all'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const hasLoaded = useRef(false)
@@ -207,9 +210,11 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
     setEditor({ key: `new-${info.dateStr}`, task: null, draft })
   }
 
-  function eventClick(info: EventClickArg) {
-    const task = (info.event.extendedProps as CalendarEventProps).task
-    setEditor({ key: task.id, task })
+  function setFilter(name: 'status' | 'assignee' | 'label', value: string) {
+    const next = new URLSearchParams(searchParams)
+    if (value === 'all') next.delete(name)
+    else next.set(name, value)
+    setSearchParams(next, { replace: true })
   }
 
   async function eventDrop(info: EventDropArg) {
@@ -256,13 +261,13 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
         <div><p className="eyebrow">{workspace.workspaceName}</p><h2>日历</h2></div>
       </div>
       <div className="calendar-filters" aria-label="日历筛选">
-        <label>状态<select value={status} onChange={(event) => setStatus(event.target.value)}>
+        <label>状态<select value={status} onChange={(event) => setFilter('status', event.target.value)}>
           <option value="all">全部</option><option value="todo">Todo</option><option value="in_progress">In Progress</option><option value="done">Done</option>
         </select></label>
-        <label>负责人<select value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+        <label>负责人<select value={assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
           <option value="all">全部</option>{members.map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}
         </select></label>
-        <label>标签<select value={label} onChange={(event) => setLabel(event.target.value)}>
+        <label>标签<select value={label} onChange={(event) => setFilter('label', event.target.value)}>
           <option value="all">全部</option>{labels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></label>
       </div>
@@ -278,7 +283,15 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
           editable
           eventStartEditable
           dateClick={dateClick}
-          eventClick={eventClick}
+          eventContent={(info) => {
+            const task = (info.event.extendedProps as CalendarEventProps).task
+            return <Link
+              className="calendar-task-link"
+              to={`/tasks/${task.id}`}
+              state={{ from: `${location.pathname}${location.search}`, scrollY: window.scrollY, cachedTask: task }}
+              aria-label={`查看任务：${task.title}`}
+            >{info.event.title}</Link>
+          }}
           eventDrop={(info) => void eventDrop(info)}
           height="auto"
           nowIndicator

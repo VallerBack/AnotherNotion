@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { DateTime } from 'luxon'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE, timezoneLabel, utcToZonedInput, zonedInputToUtc } from '../lib/datetime'
 import type {
@@ -284,7 +284,7 @@ export function TaskEditor({
   )
 }
 
-function Comments({ repository, task }: { repository: TaskRepository; task: TaskRecord }) {
+export function Comments({ repository, task }: { repository: TaskRepository; task: TaskRecord }) {
   const { session } = useAuth()
   const [comments, setComments] = useState<TaskComment[]>([])
   const [body, setBody] = useState('')
@@ -353,7 +353,7 @@ function Comments({ repository, task }: { repository: TaskRepository; task: Task
   </div>
 }
 
-function Reminders({ repository, task }: { repository: TaskRepository; task: TaskRecord }) {
+export function Reminders({ repository, task }: { repository: TaskRepository; task: TaskRecord }) {
   const { profile } = useAuth()
   const timezone = profile?.timezone ?? DEFAULT_TIMEZONE
   const [reminders, setReminders] = useState<TaskReminder[]>([])
@@ -477,6 +477,7 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   const { session, profile, memberships } = useAuth()
   const userId = session?.user.id
   const workspace = memberships[0]
+  const location = useLocation()
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
@@ -535,7 +536,6 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   async function mutate(action: () => Promise<void>) {
     try {
       await action()
-      setSelected(null)
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '操作失败')
@@ -554,12 +554,17 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
       <p className="empty-state">{view === 'trash' ? '回收站是空的。' : '这里还没有任务。'}</p>
     ) : <div className="task-list">{sortedTasks.map((task) => (
       <article key={task.id} className={`task-card priority--${task.priority}`}>
-        <button className="task-main" onClick={() => setSelected(task)}>
+        <Link
+          className="task-main"
+          to={`/tasks/${task.id}`}
+          state={{ from: `${location.pathname}${location.search}`, scrollY: window.scrollY, cachedTask: task }}
+          aria-label={`查看任务：${task.title}`}
+        >
           <span className={`status-pill status--${task.status}`}>{task.status.replace('_', ' ')}</span>
           <strong>{task.title}</strong>
           <span className="muted">{formatSchedule(task, profile?.timezone ?? DEFAULT_TIMEZONE)}</span>
           <span className="priority-text">{task.priority}</span>
-        </button>
+        </Link>
         <div className="task-actions">
           {view === 'trash' ? <>
             <button className="button" onClick={() => void mutate(async () => { await repository.restoreTask(task.id); window.alert('任务已恢复，已取消的提醒不会自动恢复，请重新设置。') })}>恢复</button>
@@ -567,19 +572,23 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
           </> : <>
             {task.status !== 'done' && <button className="button" onClick={() => void mutate(() => repository.updateTask(task.id, { ...taskToDraft(task), status: 'done' }))}>完成</button>}
             <button className="button" onClick={() => setEditing(task)}>编辑</button>
+            <button className="button" onClick={() => setSelected(task)}>提醒与评论</button>
             <button className="button" onClick={() => void mutate(() => repository.softDeleteTask(task.id))}>移到回收站</button>
           </>}
         </div>
       </article>
     ))}</div>}
     {editing && <TaskEditor task={editing === 'new' ? null : editing} labels={labels} members={members} reminderRecipients={reminderRecipients} repository={repository} workspaceId={workspace.workspaceId} onSave={save} onCancel={() => setEditing(null)} />}
-    {selected && view !== 'trash' && <aside className="detail-drawer">
-      <button className="icon-button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button>
-      <h2>{selected.title}</h2>
-      <pre className="markdown-source">{selected.descriptionMd || '暂无说明'}</pre>
-      <Reminders repository={repository} task={selected} />
-      <Comments repository={repository} task={selected} />
-    </aside>}
+    {selected && <div className="drawer-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label={`任务互动：${selected.title}`} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="section-heading">
+          <h2>{selected.title}</h2>
+          <button className="button" onClick={() => setSelected(null)}>关闭</button>
+        </div>
+        <Reminders repository={repository} task={selected} />
+        <Comments repository={repository} task={selected} />
+      </aside>
+    </div>}
   </section>
 }
 

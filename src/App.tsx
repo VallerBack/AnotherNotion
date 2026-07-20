@@ -14,6 +14,7 @@ import { DEFAULT_TIMEZONE, timezoneLabel } from './lib/datetime'
 import { SupabaseAuthGateway, type AuthGateway } from './auth/auth-gateway'
 import { LabelsPage, TaskBoard } from './tasks/TaskWorkspace'
 import { CalendarPage } from './tasks/CalendarPage'
+import { TaskDetailsPage } from './tasks/TaskDetailsPage'
 import {
   SupabaseTaskRepository,
   type TaskRepository,
@@ -398,6 +399,7 @@ function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
           <Route path="/today" element={<TaskBoard repository={taskRepository} view="today" />} />
           <Route path="/calendar" element={<CalendarPage repository={taskRepository} />} />
           <Route path="/tasks" element={<TaskBoard repository={taskRepository} view="all" />} />
+          <Route path="/tasks/:taskId" element={<TaskDetailsPage repository={taskRepository} />} />
           <Route path="/my-tasks" element={<TaskBoard repository={taskRepository} view="mine" />} />
           <Route path="/trash" element={<TaskBoard repository={taskRepository} view="trash" />} />
           <Route path="/labels" element={<LabelsPage repository={taskRepository} />} />

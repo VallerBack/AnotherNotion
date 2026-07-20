@@ -4,6 +4,7 @@ import {
   timezoneLabel,
   utcToZonedInput,
   zonedInputToUtc,
+  formatInTimezone,
 } from './datetime'
 
 describe('timezone conversion', () => {
@@ -26,5 +27,11 @@ describe('timezone conversion', () => {
     const utc = zonedInputToUtc('2026-12-31T20:15', 'America/New_York')
     expect(utc).toBe('2027-01-01T01:15:00.000Z')
     expect(utcToZonedInput(utc, 'America/New_York')).toBe('2026-12-31T20:15')
+  })
+
+  it('formats stored UTC timestamps in the account timezone', () => {
+    expect(formatInTimezone('2026-07-20T16:30:00.000Z', 'Asia/Shanghai'))
+      .toContain('2026')
+    expect(formatInTimezone(null, 'Asia/Shanghai')).toBe('未设置')
   })
 })

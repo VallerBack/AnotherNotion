@@ -283,6 +283,7 @@ h2 {
   background: transparent;
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .task-actions {
@@ -294,6 +295,65 @@ h2 {
 .task-actions .button {
   padding: 7px 9px;
   font-size: 0.78rem;
+}
+
+.task-detail {
+  display: grid;
+  gap: 24px;
+}
+
+.task-detail__back {
+  justify-self: start;
+}
+
+.task-detail__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #e1e1dc;
+  border-radius: 12px;
+  background: #e1e1dc;
+}
+
+.task-detail__grid > div {
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.task-detail__grid dt {
+  margin-bottom: 5px;
+  color: #777770;
+  font-size: 0.78rem;
+}
+
+.task-detail__grid dd {
+  margin: 0;
+}
+
+.task-detail__section {
+  padding: 20px;
+  border: 1px solid #e1e1dc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.task-detail__section h3 {
+  margin-top: 0;
+}
+
+.task-detail__reminders {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.task-detail__reminders li {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
 }
 
 .button--danger {
@@ -575,6 +635,11 @@ code {
 
   .task-card,
   .task-main {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail__grid,
+  .task-detail__reminders li {
     grid-template-columns: 1fr;
   }
 

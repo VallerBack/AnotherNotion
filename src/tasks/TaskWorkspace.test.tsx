@@ -9,6 +9,7 @@ import type {
   TaskRecord,
   TaskRepository,
   TaskView,
+  WorkspaceLabel,
 } from './task-repository'
 
 const session = {
@@ -52,6 +53,9 @@ const task: TaskRecord = {
   startAt: null,
   dueDate: null,
   dueAt: null,
+  createdBy: 'user-1',
+  createdAt: '2026-07-19T16:00:00.000Z',
+  updatedAt: '2026-07-20T01:00:00.000Z',
   deletedAt: null,
   labelIds: [],
 }
@@ -60,6 +64,8 @@ class TaskRepositoryMock implements TaskRepository {
   tasks: TaskRecord[] = []
   reminders = [] as Awaited<ReturnType<TaskRepository['listTaskReminders']>>
   reminderRecipients = [{ userId: 'user-1', displayName: '成员', canReceiveEmail: true }]
+  labels = [] as WorkspaceLabel[]
+  members = [{ userId: 'user-1', displayName: '成员' }]
   error: Error | null = null
   listTasks = vi.fn(async (workspaceId: string, userId: string, view: TaskView) => {
     void workspaceId
@@ -67,6 +73,10 @@ class TaskRepositoryMock implements TaskRepository {
     void view
     if (this.error) throw this.error
     return this.tasks
+  })
+  getTask = vi.fn(async (_workspaceId: string, taskId: string) => {
+    if (this.error) throw this.error
+    return this.tasks.find((item) => item.id === taskId) ?? null
   })
   createTask = vi.fn(async (workspaceId: string, userId: string, draft: TaskDraft) => {
     void workspaceId
@@ -77,11 +87,11 @@ class TaskRepositoryMock implements TaskRepository {
   softDeleteTask = vi.fn(async () => undefined)
   restoreTask = vi.fn(async () => undefined)
   permanentlyDeleteTask = vi.fn(async () => undefined)
-  listLabels = vi.fn(async () => [])
+  listLabels = vi.fn(async () => this.labels)
   createLabel = vi.fn(async () => undefined)
   updateLabel = vi.fn(async () => undefined)
   deleteLabel = vi.fn(async () => undefined)
-  listMembers = vi.fn(async () => [{ userId: 'user-1', displayName: '成员' }])
+  listMembers = vi.fn(async () => this.members)
   listComments = vi.fn(async () => [])
   addComment = vi.fn(async () => undefined)
   updateComment = vi.fn(async () => undefined)
@@ -104,6 +114,136 @@ afterEach(() => {
 })
 
 describe('核心任务模块', () => {
+  it('点击任务主体进入只读详情并显示实际字段、创建者、标签和提醒', async () => {
+    window.location.hash = '#/tasks'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [{
+      ...task,
+      descriptionMd: '# 发布说明',
+      scheduleKind: 'timed',
+      startAt: '2026-07-20T01:00:00.000Z',
+      dueAt: '2026-07-20T02:00:00.000Z',
+      labelIds: ['label-1'],
+    }]
+    repository.labels = [{ id: 'label-1', name: '发布', color: '#ef4444' }]
+    repository.reminders = [{
+      id: 'reminder-1', taskId: 'task-1', recipientUserId: 'user-1',
+      remindAt: '2026-07-20T00:30:00.000Z', status: 'pending',
+      attemptCount: 0, sentAt: null, lastError: null,
+    }]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('link', { name: '查看任务：准备发布' }))
+
+    expect(await screen.findByRole('heading', { name: '准备发布' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/tasks/task-1')
+    expect(screen.getByText('# 发布说明')).toBeInTheDocument()
+    expect(screen.getByText('发布')).toBeInTheDocument()
+    expect(screen.getAllByText('成员').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2026年7月20日 01:00').length).toBeGreaterThan(0)
+    expect(screen.getByText('2026年7月20日 02:00')).toBeInTheDocument()
+    expect(screen.getByText('已启用')).toBeInTheDocument()
+    expect(screen.getByText('2026年7月19日 16:00')).toBeInTheDocument()
+  })
+
+  it('历史任务没有 created_by 时明确显示未记录', async () => {
+    window.location.hash = '#/tasks/task-1'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [{ ...task, createdBy: null }]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+
+    expect(await screen.findByText('历史任务未记录')).toBeInTheDocument()
+  })
+
+  it('返回按钮回到进入前页面，直接打开详情时回到全部任务', async () => {
+    window.location.hash = '#/today'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [task]
+    const user = userEvent.setup()
+    const view = render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+
+    await user.click(await screen.findByRole('link', { name: '查看任务：准备发布' }))
+    await user.click(await screen.findByRole('button', { name: '← 返回' }))
+    expect(await screen.findByRole('heading', { name: '今日任务' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/today')
+
+    view.unmount()
+    window.location.hash = '#/tasks/task-1'
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    await user.click(await screen.findByRole('button', { name: '← 返回' }))
+    expect(await screen.findByRole('heading', { name: '全部任务' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/tasks')
+  })
+
+  it('从回收站进入详情后返回回收站', async () => {
+    window.location.hash = '#/trash'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [{ ...task, deletedAt: '2026-07-20T03:00:00.000Z' }]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('link', { name: '查看任务：准备发布' }))
+    expect(await screen.findByText('位于回收站')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '← 返回' }))
+    expect(await screen.findByRole('heading', { name: '回收站' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/trash')
+  })
+
+  it('从带标签筛选的日历进入详情后保留筛选来源', async () => {
+    window.location.hash = '#/calendar?label=label-1'
+    const repository = new TaskRepositoryMock()
+    repository.labels = [{ id: 'label-1', name: '发布', color: '#ef4444' }]
+    repository.tasks = [{
+      ...task,
+      scheduleKind: 'timed',
+      startAt: '2026-07-20T01:00:00.000Z',
+      dueAt: '2026-07-20T02:00:00.000Z',
+      labelIds: ['label-1'],
+    }]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('link', { name: '查看任务：准备发布' }))
+    expect(await screen.findByRole('heading', { name: '准备发布' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '← 返回' }))
+
+    expect(await screen.findByRole('heading', { name: '日历' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/calendar?label=label-1')
+    expect(screen.getByLabelText('标签')).toHaveValue('label-1')
+  })
+
+  it('任务不存在或查询失败时显示中文提示和返回按钮', async () => {
+    window.location.hash = '#/tasks/missing-task'
+    const repository = new TaskRepositoryMock()
+    const view = render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('任务不存在')
+    expect(screen.getByRole('button', { name: '← 返回' })).toBeInTheDocument()
+
+    view.unmount()
+    const failingRepository = new TaskRepositoryMock()
+    failingRepository.error = new Error('网络连接失败，请稍后重试。')
+    render(<AuthApp gateway={new AuthMock()} taskRepository={failingRepository} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络连接失败')
+    expect(screen.getByRole('button', { name: '← 返回' })).toBeInTheDocument()
+  })
+
+  it('重复认证事件不会卸载直接刷新打开的详情页', async () => {
+    window.location.hash = '#/tasks/task-1'
+    const auth = new AuthMock()
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [task]
+    render(<AuthApp gateway={auth} taskRepository={repository} />)
+    await screen.findByRole('heading', { name: '准备发布' })
+
+    auth.emit({ event: 'SIGNED_IN', session: { ...session, access_token: 'same-user-token' } })
+
+    expect(screen.queryByText('正在恢复登录状态…')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '准备发布' })).toBeInTheDocument()
+    expect(screen.getByLabelText('主导航')).toBeInTheDocument()
+    expect(auth.loadProfile).toHaveBeenCalledTimes(1)
+  })
+
   it('侧栏路由导航不触发整页重载或重新初始化认证', async () => {
     const auth = new AuthMock()
     const repository = new TaskRepositoryMock()
@@ -208,8 +348,10 @@ describe('核心任务模块', () => {
       'task-1',
       expect.objectContaining({ status: 'done' }),
     ))
+    expect(window.location.hash).toBe('#/tasks')
 
     await user.click(screen.getByRole('button', { name: '编辑' }))
+    expect(window.location.hash).toBe('#/tasks')
     const title = screen.getByLabelText('标题')
     await user.clear(title)
     await user.type(title, '更新后的任务')
@@ -222,6 +364,7 @@ describe('核心任务模块', () => {
 
     await user.click(screen.getByRole('button', { name: '移到回收站' }))
     await waitFor(() => expect(repository.softDeleteTask).toHaveBeenCalledWith('task-1'))
+    expect(window.location.hash).toBe('#/tasks')
   })
 
   it('显示 RLS 权限错误并提供重试入口', async () => {
@@ -240,7 +383,7 @@ describe('核心任务模块', () => {
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
     const user = userEvent.setup()
 
-    await user.click(await screen.findByText('准备发布'))
+    await user.click(await screen.findByRole('button', { name: '提醒与评论' }))
     await user.type(screen.getByLabelText(/提醒时间/), '2030-01-02T03:04')
     await user.click(screen.getByRole('checkbox', { name: /成员/ }))
     await user.click(screen.getByRole('button', { name: '创建提醒' }))

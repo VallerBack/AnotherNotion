@@ -19,6 +19,9 @@ const allDayTask: TaskRecord = {
   startAt: null,
   dueDate: '2026-07-20',
   dueAt: null,
+  createdBy: 'user-1',
+  createdAt: '2026-07-19T16:00:00.000Z',
+  updatedAt: '2026-07-20T01:00:00.000Z',
   deletedAt: null,
   labelIds: ['label-1'],
 }

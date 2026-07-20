@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const migrationUrl = new URL(
-  '../supabase/migrations/20260719000100_initial_schema.sql',
-  import.meta.url,
-)
-const sql = await readFile(migrationUrl, 'utf8')
+const migrationsUrl = new URL('../supabase/migrations/', import.meta.url)
+const migrationFiles = (await readdir(migrationsUrl))
+  .filter((file) => file.endsWith('.sql'))
+  .sort()
+const sql = (
+  await Promise.all(
+    migrationFiles.map((file) => readFile(new URL(file, migrationsUrl), 'utf8')),
+  )
+).join('\n')
 const businessTables = [
   'profiles',
   'workspaces',
@@ -87,11 +91,26 @@ test('destructive cascades are not reachable through workspace or task delete po
   assert.doesNotMatch(sql, /grant delete on public\.tasks/i)
 })
 
+test('permanent task deletion is restricted to an owner-only definer function', () => {
+  assert.match(
+    sql,
+    /create function public\.permanently_delete_task[\s\S]*?private\.is_workspace_owner\(t\.workspace_id\)/i,
+  )
+  assert.match(
+    sql,
+    /permanently_delete_task[\s\S]*?security definer[\s\S]*?set search_path = pg_catalog/i,
+  )
+})
+
 test('owner template contains placeholders only', async () => {
   const template = await readFile(
     new URL('../supabase/templates/initialize_first_owner.sql', import.meta.url),
     'utf8',
   )
-  assert.match(template, /owner@example\.invalid/)
+  assert.match(template, /OWNER_EMAIL_PLACEHOLDER/)
+  assert.match(template, /v_owner_user_id uuid := null/)
   assert.doesNotMatch(template, /@[a-z0-9-]+\.(com|cn|net|org)\b/i)
+  assert.match(template, /where w\.name = 'AnotherNotion'/)
+  assert.match(template, /on conflict \(workspace_id, user_id\) do update/i)
+  assert.match(template, /pg_advisory_xact_lock/i)
 })

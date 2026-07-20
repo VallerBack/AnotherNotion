@@ -44,6 +44,8 @@ type TaskRow = {
   priority: TaskPriority
   assignee_id: string | null
   schedule_kind: TaskScheduleKind
+  start_date: string | null
+  start_at: string | null
   due_date: string | null
   due_at: string | null
   created_by: string
@@ -95,8 +97,8 @@ export interface Database {
       workspace_members: TableDefinition<WorkspaceMemberRow, never, never>
       tasks: TableDefinition<
         TaskRow,
-        Pick<TaskRow, 'workspace_id' | 'title' | 'created_by'> & Partial<Pick<TaskRow, 'description_md' | 'status' | 'priority' | 'assignee_id' | 'schedule_kind' | 'due_date' | 'due_at'>>,
-        Partial<Pick<TaskRow, 'title' | 'description_md' | 'status' | 'priority' | 'assignee_id' | 'schedule_kind' | 'due_date' | 'due_at' | 'deleted_at'>>
+        Pick<TaskRow, 'workspace_id' | 'title' | 'created_by'> & Partial<Pick<TaskRow, 'description_md' | 'status' | 'priority' | 'assignee_id' | 'schedule_kind' | 'start_date' | 'start_at' | 'due_date' | 'due_at'>>,
+        Partial<Pick<TaskRow, 'title' | 'description_md' | 'status' | 'priority' | 'assignee_id' | 'schedule_kind' | 'start_date' | 'start_at' | 'due_date' | 'due_at' | 'deleted_at'>>
       >
       labels: TableDefinition<
         LabelRow,
@@ -120,6 +122,9 @@ export interface Database {
       add_workspace_member: { Args: { p_workspace_id: string; p_user_id: string }; Returns: undefined }
       remove_workspace_member: { Args: { p_workspace_id: string; p_user_id: string }; Returns: undefined }
       transfer_workspace_ownership: { Args: { p_workspace_id: string; p_new_owner_id: string }; Returns: undefined }
+      list_deleted_tasks: { Args: { p_workspace_id: string }; Returns: TaskRow[] }
+      restore_task: { Args: { p_task_id: string }; Returns: undefined }
+      permanently_delete_task: { Args: { p_task_id: string }; Returns: undefined }
     }
     Enums: {
       workspace_role: WorkspaceRole

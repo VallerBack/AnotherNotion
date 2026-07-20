@@ -22,6 +22,11 @@ export type ProfilePreferences = Pick<
   'displayName' | 'timezone' | 'notificationEmail' | 'emailNotificationsEnabled'
 >
 
+export type NotificationEmailSendResult = {
+  sent: boolean
+  dryRun: boolean
+}
+
 export type WorkspaceMembership = {
   workspaceId: string
   workspaceName: string
@@ -39,7 +44,7 @@ export interface AuthGateway {
   signOut(): Promise<void>
   updatePassword(password: string): Promise<void>
   updateProfile(userId: string, preferences: ProfilePreferences): Promise<void>
-  requestNotificationEmailVerification(): Promise<void>
+  requestNotificationEmailVerification(): Promise<NotificationEmailSendResult>
   verifyNotificationEmail(token: string): Promise<void>
   loadProfile(userId: string): Promise<UserProfile>
   loadMemberships(userId: string): Promise<WorkspaceMembership[]>
@@ -59,6 +64,18 @@ async function throwFunctionError(error: unknown): Promise<never> {
     if (body?.error) throw new Error(body.error)
   }
   throw error
+}
+
+async function throwNotificationFunctionError(error: unknown): Promise<never> {
+  const context = (error as { context?: Response } | null)?.context
+  const status = context?.status ?? 0
+  const body = context ? await context.clone().json().catch(() => null) as { error?: string } | null : null
+  if (body?.error) throw new Error(body.error)
+  if (status === 401) throw new Error('登录状态已失效，请重新登录。')
+  if (status === 404) throw new Error('验证邮件服务尚未部署或项目配置不一致。')
+  if (status === 429) throw new Error('发送过于频繁，请稍后再试。')
+  if (status >= 500) throw new Error('邮件服务暂时不可用。')
+  throw new Error('无法调用验证邮件服务，请稍后重试。')
 }
 
 export class SupabaseAuthGateway implements AuthGateway {
@@ -110,8 +127,25 @@ export class SupabaseAuthGateway implements AuthGateway {
   }
 
   async requestNotificationEmailVerification() {
-    const { error } = await this.client.functions.invoke('request-email-verification', { body: {} })
-    if (error) await throwFunctionError(error)
+    const functionName = 'request-email-verification'
+    console.info('edge_function_request_started', { functionName })
+    const { data, error } = await this.client.functions.invoke(functionName, { body: {} })
+    if (error) {
+      const status = (error as { context?: Response }).context?.status ?? 0
+      const category = status === 401 ? 'unauthorized' : status === 404 ? 'not_found'
+        : status === 429 ? 'rate_limited' : status >= 500 ? 'service_error' : 'invoke_error'
+      console.warn('edge_function_result', { functionName, status, category, sent: false, dryRun: false })
+      await throwNotificationFunctionError(error)
+    }
+    const result = data as { sent?: unknown; dryRun?: unknown; status?: unknown; category?: unknown } | null
+    const status = typeof result?.status === 'number' ? result.status : 0
+    const sent = result?.sent === true
+    const dryRun = result?.dryRun === true
+    const category = typeof result?.category === 'string' ? result.category : sent ? 'accepted' : dryRun ? 'dry_run' : 'invalid_response'
+    console.info('edge_function_result', { functionName, status, category, sent, dryRun })
+    if (dryRun) return { sent: false, dryRun: true }
+    if (!sent) throw new Error('邮件函数未确认实际投递，请稍后重试。')
+    return { sent: true, dryRun: false }
   }
 
   async verifyNotificationEmail(token: string) {

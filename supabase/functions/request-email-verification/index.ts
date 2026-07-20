@@ -39,7 +39,11 @@ Deno.serve(async (request) => {
     })
       if (delivery.dryRun) {
         await supabase.rpc('cancel_notification_email_verification_issue', { p_token_hash: tokenHash })
-        return json({ error: '邮件服务处于测试模式，未实际发送。', code: 'EMAIL_DRY_RUN' }, 503)
+        return json({ sent: false, dryRun: true, status: 200, category: 'dry_run' })
+      }
+      if (!delivery.messageId) {
+        await supabase.rpc('cancel_notification_email_verification_issue', { p_token_hash: tokenHash })
+        return json({ error: '邮件服务没有确认投递。', code: 'MISSING_MESSAGE_ID', sent: false, dryRun: false }, 502)
       }
     } catch (deliveryError) {
       await supabase.rpc('cancel_notification_email_verification_issue', { p_token_hash: tokenHash })
@@ -50,7 +54,7 @@ Deno.serve(async (request) => {
       throw deliveryError
     }
     console.info(JSON.stringify({ event: 'verification_email_accepted', status: 202, category: 'accepted' }))
-    return json({ message: '已发送，请检查收件箱和垃圾邮件。' })
+    return json({ sent: true, dryRun: false, status: 202, category: 'accepted' }, 202)
   } catch (error) {
     console.error(JSON.stringify({ event: 'verification_request_failed', message: error instanceof Error ? error.message : 'unknown' }))
     return json({ error: '无法发送验证邮件，请稍后再试。' }, 500)

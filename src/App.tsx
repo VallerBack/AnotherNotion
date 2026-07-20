@@ -307,9 +307,15 @@ function SettingsPage() {
     setMessage(null)
     setError(null)
     try {
-      await gateway.requestNotificationEmailVerification()
-      setMessage('已发送，请检查收件箱和垃圾邮件。')
-      setResendSeconds(60)
+      const result = await gateway.requestNotificationEmailVerification()
+      if (result.dryRun) {
+        setMessage('模拟发送，未实际投递。')
+      } else if (result.sent) {
+        setMessage('已发送，请检查收件箱和垃圾邮件。')
+        setResendSeconds(60)
+      } else {
+        throw new Error('邮件函数未确认实际投递，请稍后重试。')
+      }
     } catch (reason) {
       setError(getAuthErrorMessage(reason, '发送验证邮件'))
     } finally {

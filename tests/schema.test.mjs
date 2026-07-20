@@ -27,6 +27,10 @@ const remindersSql = await readFile(
   new URL('20260720000400_task_email_reminders.sql', migrationsUrl),
   'utf8',
 )
+const deliverySql = await readFile(
+  new URL('20260720000500_email_verification_and_delivery_queue.sql', migrationsUrl),
+  'utf8',
+)
 const businessTables = [
   'profiles',
   'workspaces',
@@ -36,6 +40,8 @@ const businessTables = [
   'task_labels',
   'comments',
   'task_reminders',
+  'notification_email_verification_tokens',
+  'notification_email_verification_attempts',
 ]
 
 test('all business tables enable and force RLS', () => {
@@ -215,4 +221,43 @@ test('notification email is readable only through the current-user preferences f
   assert.match(remindersSql, /grant select \(id, display_name, timezone, created_at, updated_at\)/i)
   assert.match(remindersSql, /get_my_profile_preferences[\s\S]*?where p\.id = auth\.uid\(\)/i)
   assert.doesNotMatch(remindersSql, /grant select \([^)]*notification_email/i)
+})
+
+test('verification tokens are hashed, expiring, one-time, rate limited, and atomically consumed', () => {
+  assert.match(deliverySql, /token_hash text not null unique/i)
+  assert.match(deliverySql, /interval '30 minutes'/i)
+  assert.match(deliverySql, /created_at > statement_timestamp\(\) - interval '1 minute'/i)
+  assert.match(deliverySql, />= 5/i)
+  assert.match(deliverySql, /for update/i)
+  assert.match(deliverySql, /set used_at = statement_timestamp\(\)/i)
+  assert.doesNotMatch(deliverySql, /grant .*notification_email_verification_tokens.*authenticated/i)
+})
+
+test('reminder worker claims atomically with bounded skip-locked retries', () => {
+  assert.match(deliverySql, /create function public\.claim_due_task_reminders/i)
+  assert.match(deliverySql, /for update skip locked/i)
+  assert.match(deliverySql, /limit least\(greatest\(p_limit, 1\), 50\)/i)
+  assert.match(deliverySql, /locked_at < statement_timestamp\(\) - interval '10 minutes'/i)
+  assert.match(deliverySql, /pg_catalog\.power\(2, attempt_count\)/i)
+  assert.match(deliverySql, /attempt_count >= 5/i)
+})
+
+test('edge functions implement auth boundaries, CORS, hashing, Brevo, and dry-run safety', async () => {
+  const root = new URL('../supabase/functions/', import.meta.url)
+  const requestFunction = await readFile(new URL('request-email-verification/index.ts', root), 'utf8')
+  const verifyFunction = await readFile(new URL('verify-notification-email/index.ts', root), 'utf8')
+  const sendFunction = await readFile(new URL('send-reminders/index.ts', root), 'utf8')
+  const provider = await readFile(new URL('_shared/brevo.ts', root), 'utf8')
+  const config = await readFile(new URL('../supabase/config.toml', import.meta.url), 'utf8')
+  assert.match(requestFunction, /auth\.getUser\(\)/)
+  assert.match(requestFunction, /randomToken\(32\)/)
+  assert.match(verifyFunction, /sha256\(token\)/)
+  assert.match(sendFunction, /x-cron-secret/)
+  assert.match(sendFunction, /claim_due_task_reminders/)
+  assert.match(provider, /https:\/\/api\.brevo\.com\/v3\/smtp\/email/)
+  assert.match(provider, /EMAIL_DRY_RUN/)
+  assert.match(provider, /Idempotency-Key/)
+  assert.match(config, /\[functions\.request-email-verification\][\s\S]*?verify_jwt = true/)
+  assert.match(config, /\[functions\.verify-notification-email\][\s\S]*?verify_jwt = false/)
+  assert.match(config, /\[functions\.send-reminders\][\s\S]*?verify_jwt = false/)
 })

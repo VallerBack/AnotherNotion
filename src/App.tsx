@@ -261,7 +261,7 @@ function PasswordPage({ forced = false }: { forced?: boolean }) {
 }
 
 function SettingsPage() {
-  const { profile, updateProfile } = useAuth()
+  const { profile, updateProfile, gateway } = useAuth()
   const [displayName, setDisplayName] = useState(profile?.displayName ?? '')
   const [timezone, setTimezone] = useState(profile?.timezone ?? 'UTC')
   const [notificationEmail, setNotificationEmail] = useState(profile?.notificationEmail ?? '')
@@ -269,6 +269,7 @@ function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [sendingVerification, setSendingVerification] = useState(false)
   const timezoneOptions = (() => {
     const intl = Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] }
     const values = intl.supportedValuesOf?.('timeZone') ?? ['UTC', 'Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York']
@@ -295,6 +296,20 @@ function SettingsPage() {
     }
   }
 
+  async function sendVerification() {
+    setSendingVerification(true)
+    setMessage(null)
+    setError(null)
+    try {
+      await gateway.requestNotificationEmailVerification()
+      setMessage('如果通知邮箱有效，验证邮件将很快送达。')
+    } catch (reason) {
+      setError(getAuthErrorMessage(reason, '发送验证邮件'))
+    } finally {
+      setSendingVerification(false)
+    }
+  }
+
   return <section className="settings-stack">
     <section className="workspace-panel">
       <p className="eyebrow">ACCOUNT</p>
@@ -310,12 +325,41 @@ function SettingsPage() {
         </label>
         <label>通知邮箱<input type="email" maxLength={320} value={notificationEmail} onChange={(event) => { setNotificationEmail(event.target.value); if (!event.target.value) setNotificationsEnabled(false) }} /></label>
         <p className="muted">验证状态：{profile?.notificationEmailVerifiedAt ? '已验证' : '未验证'}</p>
+        <button type="button" className="button" disabled={!profile?.notificationEmail || sendingVerification} onClick={() => void sendVerification()}>
+          {sendingVerification ? '发送中…' : '发送验证邮件'}
+        </button>
         <label className="checkbox-row"><input type="checkbox" checked={notificationsEnabled} disabled={!notificationEmail} onChange={(event) => setNotificationsEnabled(event.target.checked)} />启用邮件提醒</label>
         <button className="button button--primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button>
       </form>
     </section>
     <PasswordPage />
   </section>
+}
+
+function VerifyNotificationEmailPage() {
+  const { gateway } = useAuth()
+  const location = useLocation()
+  const token = new URLSearchParams(location.search).get('token')
+  const [state, setState] = useState<'verifying' | 'success' | 'error'>(token ? 'verifying' : 'error')
+  const [message, setMessage] = useState(token ? '正在验证通知邮箱…' : '验证链接缺少 token。')
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    void gateway.verifyNotificationEmail(token).then(() => {
+      if (active) { setState('success'); setMessage('通知邮箱验证成功。') }
+    }).catch((reason) => {
+      if (active) { setState('error'); setMessage(getAuthErrorMessage(reason, '验证通知邮箱')) }
+    })
+    return () => { active = false }
+  }, [gateway, token])
+
+  return <main className="screen"><section className="card card--center">
+    <p className="eyebrow">EMAIL VERIFICATION</p>
+    <h1>{state === 'success' ? '验证成功' : state === 'error' ? '验证失败' : '正在验证'}</h1>
+    <div className={`notice ${state === 'error' ? 'notice--error' : state === 'success' ? 'notice--success' : ''}`} role="status">{message}</div>
+    <Link className="button" to={state === 'success' ? '/settings' : '/login'}>{state === 'success' ? '返回账号设置' : '返回登录'}</Link>
+  </section></main>
 }
 
 const navigation = [
@@ -394,6 +438,7 @@ export function AuthApp({
     <HashRouter>
       <AuthProvider gateway={gateway}>
         <Routes>
+          <Route path="/verify-notification-email" element={<VerifyNotificationEmailPage />} />
           <Route path="/login" element={<AuthenticatedRoutes taskRepository={taskRepository} />} />
           <Route path="/*" element={<AuthenticatedRoutes taskRepository={taskRepository} />} />
         </Routes>

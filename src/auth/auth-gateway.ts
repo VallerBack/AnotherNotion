@@ -39,6 +39,8 @@ export interface AuthGateway {
   signOut(): Promise<void>
   updatePassword(password: string): Promise<void>
   updateProfile(userId: string, preferences: ProfilePreferences): Promise<void>
+  requestNotificationEmailVerification(): Promise<void>
+  verifyNotificationEmail(token: string): Promise<void>
   loadProfile(userId: string): Promise<UserProfile>
   loadMemberships(userId: string): Promise<WorkspaceMembership[]>
   loadTaskCount(workspaceId: string): Promise<number>
@@ -48,6 +50,15 @@ function requireData<T>(data: T | null, error: { message: string } | null): T {
   if (error) throw new Error(error.message)
   if (data === null) throw new Error('请求未返回数据')
   return data
+}
+
+async function throwFunctionError(error: unknown): Promise<never> {
+  const context = (error as { context?: Response } | null)?.context
+  if (context) {
+    const body = await context.clone().json().catch(() => null) as { error?: string } | null
+    if (body?.error) throw new Error(body.error)
+  }
+  throw error
 }
 
 export class SupabaseAuthGateway implements AuthGateway {
@@ -96,6 +107,18 @@ export class SupabaseAuthGateway implements AuthGateway {
       email_notifications_enabled: preferences.emailNotificationsEnabled,
     }).eq('id', userId)
     if (error) throw error
+  }
+
+  async requestNotificationEmailVerification() {
+    const { error } = await this.client.functions.invoke('request-email-verification', { body: {} })
+    if (error) await throwFunctionError(error)
+  }
+
+  async verifyNotificationEmail(token: string) {
+    const { error } = await this.client.functions.invoke('verify-notification-email', {
+      body: { token },
+    })
+    if (error) await throwFunctionError(error)
   }
 
   async loadProfile(userId: string) {

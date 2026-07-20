@@ -43,6 +43,8 @@ class MockAuthGateway implements AuthGateway {
   })
   updatePassword = vi.fn(async () => undefined)
   updateProfile = vi.fn(async () => undefined)
+  requestNotificationEmailVerification = vi.fn(async () => undefined)
+  verifyNotificationEmail = vi.fn(async () => undefined)
   loadProfile = vi.fn(async () => this.profile)
   loadMemberships = vi.fn(async () => this.memberships)
   loadTaskCount = vi.fn(async () => 3)
@@ -182,5 +184,14 @@ describe('认证访问控制', () => {
 
     expect(await screen.findByRole('heading', { name: '首次登录，请先修改密码' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '产品小组' })).not.toBeInTheDocument()
+  })
+
+  it('公开验证链接调用通知邮箱验证函数并显示成功', async () => {
+    window.location.hash = '#/verify-notification-email?token=test-verification-token'
+    const gateway = new MockAuthGateway()
+    render(<AuthApp gateway={gateway} />)
+
+    expect(await screen.findByRole('heading', { name: '验证成功' })).toBeInTheDocument()
+    expect(gateway.verifyNotificationEmail).toHaveBeenCalledWith('test-verification-token')
   })
 })

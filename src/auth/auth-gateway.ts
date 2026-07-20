@@ -100,11 +100,10 @@ export class SupabaseAuthGateway implements AuthGateway {
 
   async loadProfile(userId: string) {
     const response = await this.client
-      .from('profiles')
-      .select('id, display_name, timezone, notification_email, notification_email_verified_at, email_notifications_enabled, must_change_password')
-      .eq('id', userId)
+      .rpc('get_my_profile_preferences')
       .single()
     const profile = requireData(response.data, response.error)
+    if (profile.id !== userId) throw new Error('Profile identity mismatch')
     return {
       id: profile.id,
       displayName: profile.display_name,

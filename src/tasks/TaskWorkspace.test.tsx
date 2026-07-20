@@ -51,6 +51,7 @@ const task: TaskRecord = {
 
 class TaskRepositoryMock implements TaskRepository {
   tasks: TaskRecord[] = []
+  reminders = [] as Awaited<ReturnType<TaskRepository['listTaskReminders']>>
   error: Error | null = null
   listTasks = vi.fn(async (workspaceId: string, userId: string, view: TaskView) => {
     void workspaceId
@@ -77,6 +78,11 @@ class TaskRepositoryMock implements TaskRepository {
   addComment = vi.fn(async () => undefined)
   updateComment = vi.fn(async () => undefined)
   deleteComment = vi.fn(async () => undefined)
+  listEligibleReminderRecipients = vi.fn(async () => [{ userId: 'user-1', displayName: '成员' }])
+  listTaskReminders = vi.fn(async () => this.reminders)
+  createTaskReminders = vi.fn(async () => undefined)
+  cancelTaskReminder = vi.fn(async () => undefined)
+  rescheduleTaskReminder = vi.fn(async () => undefined)
 }
 
 afterEach(() => {
@@ -155,5 +161,22 @@ describe('核心任务模块', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('没有权限执行此操作')
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+  })
+
+  it('工作区成员可以为多个合格收件人创建 UTC 邮件提醒', async () => {
+    window.location.hash = '#/tasks'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [task]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByText('准备发布'))
+    await user.type(screen.getByLabelText(/提醒时间/), '2030-01-02T03:04')
+    await user.click(screen.getByRole('checkbox', { name: '成员' }))
+    await user.click(screen.getByRole('button', { name: '创建提醒' }))
+
+    await waitFor(() => expect(repository.createTaskReminders).toHaveBeenCalledWith(
+      'task-1', ['user-1'], '2030-01-02T03:04:00.000Z',
+    ))
   })
 })

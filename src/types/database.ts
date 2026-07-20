@@ -10,6 +10,7 @@ export type WorkspaceRole = 'owner' | 'member'
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskScheduleKind = 'none' | 'all_day' | 'timed'
+export type TaskReminderStatus = 'pending' | 'processing' | 'sent' | 'failed' | 'cancelled'
 
 type ProfileRow = {
   id: string
@@ -86,6 +87,22 @@ type CommentRow = {
   updated_at: string
 }
 
+type TaskReminderRow = {
+  id: string
+  workspace_id: string
+  task_id: string | null
+  recipient_user_id: string
+  remind_at: string
+  status: TaskReminderStatus
+  attempt_count: number
+  next_attempt_at: string | null
+  locked_at: string | null
+  sent_at: string | null
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
 type TableDefinition<Row, Insert, Update> = {
   Row: Row
   Insert: Insert
@@ -119,6 +136,7 @@ export interface Database {
         Pick<CommentRow, 'workspace_id' | 'task_id' | 'author_id' | 'body_md'>,
         Pick<CommentRow, 'body_md'>
       >
+      task_reminders: TableDefinition<TaskReminderRow, never, never>
     }
     Views: Record<string, never>
     Functions: {
@@ -130,12 +148,18 @@ export interface Database {
       restore_task: { Args: { p_task_id: string }; Returns: undefined }
       permanently_delete_task: { Args: { p_task_id: string }; Returns: undefined }
       complete_password_change: { Args: Record<string, never>; Returns: undefined }
+      get_my_profile_preferences: { Args: Record<string, never>; Returns: Pick<ProfileRow, 'id' | 'display_name' | 'timezone' | 'notification_email' | 'notification_email_verified_at' | 'email_notifications_enabled' | 'must_change_password'>[] }
+      list_eligible_reminder_recipients: { Args: { p_workspace_id: string }; Returns: { user_id: string; display_name: string }[] }
+      create_task_reminders: { Args: { p_task_id: string; p_recipient_user_ids: string[]; p_remind_at: string }; Returns: undefined }
+      cancel_task_reminder: { Args: { p_reminder_id: string }; Returns: undefined }
+      reschedule_task_reminder: { Args: { p_reminder_id: string; p_remind_at: string }; Returns: undefined }
     }
     Enums: {
       workspace_role: WorkspaceRole
       task_status: TaskStatus
       task_priority: TaskPriority
       task_schedule_kind: TaskScheduleKind
+      task_reminder_status: TaskReminderStatus
     }
     CompositeTypes: Record<string, never>
   }

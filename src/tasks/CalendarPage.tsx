@@ -222,6 +222,10 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
         },
         info.revert,
       )
+      const reminders = await repository.listTaskReminders(task.workspaceId, task.id)
+      if (reminders.some((reminder) => ['pending', 'failed'].includes(reminder.status))) {
+        window.alert('任务时间已修改，请检查并重新安排关联提醒。')
+      }
       await load()
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : '调整任务日期失败'

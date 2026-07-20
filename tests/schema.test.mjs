@@ -23,6 +23,10 @@ const settingsRealtimeSql = await readFile(
   new URL('20260720000300_account_settings_realtime.sql', migrationsUrl),
   'utf8',
 )
+const remindersSql = await readFile(
+  new URL('20260720000400_task_email_reminders.sql', migrationsUrl),
+  'utf8',
+)
 const businessTables = [
   'profiles',
   'workspaces',
@@ -31,6 +35,7 @@ const businessTables = [
   'labels',
   'task_labels',
   'comments',
+  'task_reminders',
 ]
 
 test('all business tables enable and force RLS', () => {
@@ -182,4 +187,32 @@ test('task schedule columns store UTC-capable timestamps', () => {
   assert.match(settingsRealtimeSql, /alter column start_date type timestamptz/i)
   assert.match(settingsRealtimeSql, /alter column due_date type timestamptz/i)
   assert.match(settingsRealtimeSql, /at time zone 'UTC'/i)
+})
+
+test('task reminders are unique, UTC-capable, member-managed, and never granted to anon', () => {
+  assert.match(remindersSql, /create table public\.task_reminders/i)
+  assert.match(remindersSql, /remind_at timestamptz not null/i)
+  assert.match(remindersSql, /unique index task_reminders_unique_delivery_idx[\s\S]*?task_id, recipient_user_id, remind_at/i)
+  assert.match(remindersSql, /task_reminders_select_member[\s\S]*?private\.is_workspace_member\(workspace_id\)/i)
+  assert.match(remindersSql, /create function public\.create_task_reminders[\s\S]*?private\.is_workspace_member\(t\.workspace_id\)/i)
+  assert.doesNotMatch(remindersSql, /\bto anon\b/i)
+})
+
+test('reminder recipients must have verified enabled notification email', () => {
+  assert.match(remindersSql, /notification_email_verified_at is not null/i)
+  assert.match(remindersSql, /p\.email_notifications_enabled/i)
+  assert.match(remindersSql, /Reminder recipient must be an eligible workspace member/i)
+})
+
+test('task deletion cancels undelivered reminders and preserves delivery history', () => {
+  assert.match(remindersSql, /references public\.tasks \(id\) on delete set null/i)
+  assert.match(remindersSql, /tasks_cancel_reminders_on_delete[\s\S]*?before delete or update of deleted_at/i)
+  assert.match(remindersSql, /status = 'cancelled'[\s\S]*?status in \('pending', 'processing', 'failed'\)/i)
+})
+
+test('notification email is readable only through the current-user preferences function', () => {
+  assert.match(remindersSql, /revoke all on public\.profiles from authenticated/i)
+  assert.match(remindersSql, /grant select \(id, display_name, timezone, created_at, updated_at\)/i)
+  assert.match(remindersSql, /get_my_profile_preferences[\s\S]*?where p\.id = auth\.uid\(\)/i)
+  assert.doesNotMatch(remindersSql, /grant select \([^)]*notification_email/i)
 })

@@ -13,6 +13,7 @@ import type {
   AuthSession,
   UserProfile,
   WorkspaceMembership,
+  ProfilePreferences,
 } from './auth-gateway'
 import { getAuthErrorMessage } from './auth-errors'
 
@@ -31,6 +32,7 @@ type AuthContextValue = AuthState & {
   login(email: string, password: string): Promise<void>
   logout(): Promise<void>
   changePassword(password: string): Promise<void>
+  updateProfile(preferences: ProfilePreferences): Promise<void>
   retry(): Promise<void>
 }
 
@@ -161,9 +163,16 @@ export function AuthProvider({
     async (password: string) => {
       if (password.length < 8) throw new Error('新密码至少需要 8 个字符')
       await gateway.updatePassword(password)
+      if (state.session) await hydrate(state.session)
     },
-    [gateway],
+    [gateway, hydrate, state.session],
   )
+
+  const updateProfile = useCallback(async (preferences: ProfilePreferences) => {
+    if (!state.session) throw new Error('Authentication required')
+    await gateway.updateProfile(state.session.user.id, preferences)
+    await hydrate(state.session)
+  }, [gateway, hydrate, state.session])
 
   const retry = useCallback(async () => {
     const session = state.session ?? (await gateway.getSession())
@@ -172,8 +181,8 @@ export function AuthProvider({
   }, [gateway, hydrate, setAnonymous, state.session])
 
   const value = useMemo(
-    () => ({ ...state, gateway, login, logout, changePassword, retry }),
-    [state, gateway, login, logout, changePassword, retry],
+    () => ({ ...state, gateway, login, logout, changePassword, updateProfile, retry }),
+    [state, gateway, login, logout, changePassword, updateProfile, retry],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -43,7 +43,7 @@ function ConfigurationError() {
         <div className="notice notice--error">
           <strong>Supabase 配置缺失</strong>
           <p>
-            请在 <code>.env.local</code> 中配置：
+            请检查本地环境变量或 GitHub Pages 部署变量：
             {missingSupabaseVariables.join('、')}
           </p>
         </div>
@@ -207,7 +207,7 @@ function Dashboard() {
   )
 }
 
-function PasswordPage() {
+function PasswordPage({ forced = false }: { forced?: boolean }) {
   const { changePassword } = useAuth()
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
@@ -239,7 +239,8 @@ function PasswordPage() {
   return (
     <section className="workspace-panel">
       <p className="eyebrow">SECURITY</p>
-      <h2>修改密码</h2>
+      <h2>{forced ? '首次登录，请先修改密码' : '修改密码'}</h2>
+      {forced && <div className="notice">临时密码只能用于首次登录。修改成功后才能进入工作区。</div>}
       {message && <div className="notice notice--success" role="status">{message}</div>}
       {error && <div className="notice notice--error" role="alert">{error}</div>}
       <form className="form" onSubmit={submit}>
@@ -259,6 +260,64 @@ function PasswordPage() {
   )
 }
 
+function SettingsPage() {
+  const { profile, updateProfile } = useAuth()
+  const [displayName, setDisplayName] = useState(profile?.displayName ?? '')
+  const [timezone, setTimezone] = useState(profile?.timezone ?? 'UTC')
+  const [notificationEmail, setNotificationEmail] = useState(profile?.notificationEmail ?? '')
+  const [notificationsEnabled, setNotificationsEnabled] = useState(profile?.emailNotificationsEnabled ?? false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const timezoneOptions = (() => {
+    const intl = Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] }
+    const values = intl.supportedValuesOf?.('timeZone') ?? ['UTC', 'Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York']
+    return values.includes(timezone) ? values : [timezone, ...values]
+  })()
+
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setMessage(null)
+    setError(null)
+    try {
+      await updateProfile({
+        displayName,
+        timezone,
+        notificationEmail: notificationEmail || null,
+        emailNotificationsEnabled: notificationsEnabled,
+      })
+      setMessage('账户设置已保存。通知邮箱变更后需要重新验证。')
+    } catch (reason) {
+      setError(getAuthErrorMessage(reason, '保存账户设置'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <section className="settings-stack">
+    <section className="workspace-panel">
+      <p className="eyebrow">ACCOUNT</p>
+      <h2>账号设置</h2>
+      {message && <div className="notice notice--success" role="status">{message}</div>}
+      {error && <div className="notice notice--error" role="alert">{error}</div>}
+      <form className="form" onSubmit={save}>
+        <label>显示名<input required maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
+        <label>IANA 时区
+          <select value={timezone} onChange={(event) => setTimezone(event.target.value)}>
+            {timezoneOptions.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+          </select>
+        </label>
+        <label>通知邮箱<input type="email" maxLength={320} value={notificationEmail} onChange={(event) => { setNotificationEmail(event.target.value); if (!event.target.value) setNotificationsEnabled(false) }} /></label>
+        <p className="muted">验证状态：{profile?.notificationEmailVerifiedAt ? '已验证' : '未验证'}</p>
+        <label className="checkbox-row"><input type="checkbox" checked={notificationsEnabled} disabled={!notificationEmail} onChange={(event) => setNotificationsEnabled(event.target.checked)} />启用邮件提醒</label>
+        <button className="button button--primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button>
+      </form>
+    </section>
+    <PasswordPage />
+  </section>
+}
+
 const navigation = [
   ['/today', 'Today'],
   ['/calendar', 'Calendar'],
@@ -266,7 +325,7 @@ const navigation = [
   ['/my-tasks', 'My Tasks'],
   ['/trash', 'Trash'],
   ['/labels', 'Labels'],
-  ['/settings/password', 'Settings'],
+  ['/settings', 'Settings'],
 ] as const
 
 function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
@@ -277,7 +336,7 @@ function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
         <Link className="brand" to="/">AnotherNotion</Link>
         <nav aria-label="账户导航">
           <span>{profile?.displayName}</span>
-          <Link to="/settings/password">修改密码</Link>
+          <Link to="/settings">账号设置</Link>
           <button className="link-button" onClick={() => void logout()}>退出登录</button>
         </nav>
       </header>
@@ -293,12 +352,14 @@ function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
           <Route path="/my-tasks" element={<TaskBoard repository={taskRepository} view="mine" />} />
           <Route path="/trash" element={<TaskBoard repository={taskRepository} view="trash" />} />
           <Route path="/labels" element={<LabelsPage repository={taskRepository} />} />
-          <Route path="/settings/password" element={<PasswordPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/password" element={<Navigate to="/settings" replace />} />
           <Route path="*" element={<Navigate to="/today" replace />} />
         </Routes></div>
       </div> : <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/settings/password" element={<PasswordPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/password" element={<Navigate to="/settings" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>}
     </main>
@@ -310,6 +371,9 @@ function AuthenticatedRoutes({ taskRepository }: { taskRepository?: TaskReposito
   if (auth.status === 'loading') return <LoadingPage />
   if (auth.status === 'error') return <ErrorPage />
   if (auth.status === 'anonymous') return <LoginPage />
+  if (auth.profile?.mustChangePassword) {
+    return <main className="screen"><section className="card"><PasswordPage forced /><button className="button" onClick={() => void auth.logout()}>退出登录</button></section></main>
+  }
   if (auth.memberships.length === 0) return <WaitingForWorkspace />
 
   return (

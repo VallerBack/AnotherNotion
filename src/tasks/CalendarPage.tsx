@@ -149,7 +149,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
     setLoading(true)
     try {
       const [nextTasks, nextLabels, nextMembers] = await Promise.all([
-        repository.listTasks(workspace.workspaceId, session.user.id, 'calendar'),
+        repository.listTasks(workspace.workspaceId, session.user.id, 'calendar', profile?.timezone ?? 'UTC'),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
       ])
@@ -162,9 +162,10 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
     } finally {
       setLoading(false)
     }
-  }, [repository, session, workspace.workspaceId])
+  }, [profile?.timezone, repository, session, workspace.workspaceId])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => repository.subscribeWorkspace?.(workspace.workspaceId, () => { void load() }), [load, repository, workspace.workspaceId])
 
   const labelMap = useMemo(
     () => new Map(labels.map((item) => [item.id, item])),

@@ -11,7 +11,16 @@ export type UserProfile = {
   id: string
   displayName: string
   timezone: string
+  notificationEmail: string | null
+  notificationEmailVerifiedAt: string | null
+  emailNotificationsEnabled: boolean
+  mustChangePassword: boolean
 }
+
+export type ProfilePreferences = Pick<
+  UserProfile,
+  'displayName' | 'timezone' | 'notificationEmail' | 'emailNotificationsEnabled'
+>
 
 export type WorkspaceMembership = {
   workspaceId: string
@@ -29,6 +38,7 @@ export interface AuthGateway {
   signIn(email: string, password: string): Promise<AuthSession>
   signOut(): Promise<void>
   updatePassword(password: string): Promise<void>
+  updateProfile(userId: string, preferences: ProfilePreferences): Promise<void>
   loadProfile(userId: string): Promise<UserProfile>
   loadMemberships(userId: string): Promise<WorkspaceMembership[]>
   loadTaskCount(workspaceId: string): Promise<number>
@@ -74,12 +84,24 @@ export class SupabaseAuthGateway implements AuthGateway {
   async updatePassword(password: string) {
     const { error } = await this.client.auth.updateUser({ password })
     if (error) throw error
+    const completion = await this.client.rpc('complete_password_change')
+    if (completion.error) throw completion.error
+  }
+
+  async updateProfile(userId: string, preferences: ProfilePreferences) {
+    const { error } = await this.client.from('profiles').update({
+      display_name: preferences.displayName.trim(),
+      timezone: preferences.timezone,
+      notification_email: preferences.notificationEmail?.trim() || null,
+      email_notifications_enabled: preferences.emailNotificationsEnabled,
+    }).eq('id', userId)
+    if (error) throw error
   }
 
   async loadProfile(userId: string) {
     const response = await this.client
       .from('profiles')
-      .select('id, display_name, timezone')
+      .select('id, display_name, timezone, notification_email, notification_email_verified_at, email_notifications_enabled, must_change_password')
       .eq('id', userId)
       .single()
     const profile = requireData(response.data, response.error)
@@ -87,6 +109,10 @@ export class SupabaseAuthGateway implements AuthGateway {
       id: profile.id,
       displayName: profile.display_name,
       timezone: profile.timezone,
+      notificationEmail: profile.notification_email,
+      notificationEmailVerifiedAt: profile.notification_email_verified_at,
+      emailNotificationsEnabled: profile.email_notifications_enabled,
+      mustChangePassword: profile.must_change_password,
     }
   }
 

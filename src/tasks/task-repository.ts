@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { DateTime } from 'luxon'
 import type {
   Database,
   TaskPriority,
@@ -45,7 +46,7 @@ export type TaskComment = {
 }
 
 export interface TaskRepository {
-  listTasks(workspaceId: string, userId: string, view: TaskView): Promise<TaskRecord[]>
+  listTasks(workspaceId: string, userId: string, view: TaskView, timezone?: string): Promise<TaskRecord[]>
   createTask(workspaceId: string, userId: string, draft: TaskDraft): Promise<TaskRecord>
   updateTask(taskId: string, draft: TaskDraft): Promise<void>
   softDeleteTask(taskId: string): Promise<void>
@@ -60,6 +61,7 @@ export interface TaskRepository {
   addComment(workspaceId: string, taskId: string, userId: string, bodyMd: string): Promise<void>
   updateComment(commentId: string, bodyMd: string): Promise<void>
   deleteComment(commentId: string): Promise<void>
+  subscribeWorkspace?(workspaceId: string, onChange: () => void): () => void
 }
 
 type TaskRow = Database['public']['Tables']['tasks']['Row']
@@ -94,33 +96,27 @@ function mapTask(row: TaskRow, labelIds: string[] = []): TaskRecord {
     priority: row.priority,
     assigneeId: row.assignee_id,
     scheduleKind: row.schedule_kind,
-    startDate: row.start_date,
+    startDate: row.start_date?.slice(0, 10) ?? null,
     startAt: row.start_at,
-    dueDate: row.due_date,
+    dueDate: row.due_date?.slice(0, 10) ?? null,
     dueAt: row.due_at,
     deletedAt: row.deleted_at,
     labelIds,
   }
 }
 
-function localDateKey(value: Date) {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function isToday(task: TaskRecord) {
-  const today = localDateKey(new Date())
+function isToday(task: TaskRecord, timezone: string) {
+  const today = DateTime.now().setZone(timezone).toISODate()
   if (task.scheduleKind === 'all_day') {
     return task.startDate === today || task.dueDate === today
   }
   return [task.startAt, task.dueAt].some(
-    (value) => value !== null && localDateKey(new Date(value)) === today,
+    (value) => value !== null && DateTime.fromISO(value).setZone(timezone).toISODate() === today,
   )
 }
 
 function toTaskWrite(draft: TaskDraft) {
+  const allDayUtc = (value: string | null) => value ? `${value.slice(0, 10)}T00:00:00.000Z` : null
   return {
     title: draft.title.trim(),
     description_md: draft.descriptionMd,
@@ -128,9 +124,9 @@ function toTaskWrite(draft: TaskDraft) {
     priority: draft.priority,
     assignee_id: draft.assigneeId,
     schedule_kind: draft.scheduleKind,
-    start_date: draft.scheduleKind === 'all_day' ? draft.startDate : null,
+    start_date: draft.scheduleKind === 'all_day' ? allDayUtc(draft.startDate) : null,
     start_at: draft.scheduleKind === 'timed' ? draft.startAt : null,
-    due_date: draft.scheduleKind === 'all_day' ? draft.dueDate : null,
+    due_date: draft.scheduleKind === 'all_day' ? allDayUtc(draft.dueDate) : null,
     due_at: draft.scheduleKind === 'timed' ? draft.dueAt : null,
   }
 }
@@ -138,7 +134,7 @@ function toTaskWrite(draft: TaskDraft) {
 export class SupabaseTaskRepository implements TaskRepository {
   constructor(private readonly client: SupabaseClient<Database>) {}
 
-  async listTasks(workspaceId: string, userId: string, view: TaskView) {
+  async listTasks(workspaceId: string, userId: string, view: TaskView, timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
     let rows: TaskRow[]
     if (view === 'trash') {
       const response = await this.client.rpc('list_deleted_tasks', {
@@ -172,7 +168,7 @@ export class SupabaseTaskRepository implements TaskRepository {
 
     const tasks = rows.map((row) => mapTask(row, labelsByTask.get(row.id)))
     if (view === 'mine') return tasks.filter((task) => task.assigneeId === userId)
-    if (view === 'today') return tasks.filter(isToday)
+    if (view === 'today') return tasks.filter((task) => isToday(task, timezone))
     return tasks
   }
 
@@ -318,6 +314,19 @@ export class SupabaseTaskRepository implements TaskRepository {
   async deleteComment(commentId: string) {
     const { error } = await this.client.from('comments').delete().eq('id', commentId)
     if (error) throw toDataError(error)
+  }
+
+  subscribeWorkspace(workspaceId: string, onChange: () => void) {
+    const channel = this.client.channel(`workspace:${workspaceId}`)
+    for (const table of ['tasks', 'labels', 'task_labels', 'comments'] as const) {
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table, filter: `workspace_id=eq.${workspaceId}` },
+        onChange,
+      )
+    }
+    channel.subscribe()
+    return () => { void this.client.removeChannel(channel) }
   }
 
   private async replaceLabels(workspaceId: string, taskId: string, labelIds: string[]) {

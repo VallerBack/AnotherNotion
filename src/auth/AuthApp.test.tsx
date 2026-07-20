@@ -23,6 +23,10 @@ class MockAuthGateway implements AuthGateway {
     id: 'user-1',
     displayName: '测试成员',
     timezone: 'Asia/Shanghai',
+    notificationEmail: null,
+    notificationEmailVerifiedAt: null,
+    emailNotificationsEnabled: false,
+    mustChangePassword: false,
   }
   memberships: WorkspaceMembership[] = []
   signInError: Error | null = null
@@ -38,6 +42,7 @@ class MockAuthGateway implements AuthGateway {
     this.currentSession = null
   })
   updatePassword = vi.fn(async () => undefined)
+  updateProfile = vi.fn(async () => undefined)
   loadProfile = vi.fn(async () => this.profile)
   loadMemberships = vi.fn(async () => this.memberships)
   loadTaskCount = vi.fn(async () => 3)
@@ -156,7 +161,7 @@ describe('认证访问控制', () => {
     const user = userEvent.setup()
     await screen.findByRole('heading', { name: '产品小组' })
 
-    await user.click(screen.getByRole('link', { name: '修改密码' }))
+    await user.click(screen.getByRole('link', { name: '账号设置' }))
     await user.type(screen.getByLabelText('新密码'), 'new-password')
     await user.type(screen.getByLabelText('确认新密码'), 'new-password')
     await user.click(screen.getByRole('button', { name: '更新密码' }))
@@ -166,5 +171,16 @@ describe('认证访问控制', () => {
     await user.click(screen.getByRole('button', { name: '退出登录' }))
     expect(await screen.findByRole('button', { name: '登录' })).toBeInTheDocument()
     expect(gateway.signOut).toHaveBeenCalledOnce()
+  })
+
+  it('临时密码账户在修改密码前不能进入工作区', async () => {
+    const gateway = new MockAuthGateway()
+    gateway.currentSession = session
+    gateway.memberships = [membership]
+    gateway.profile = { ...gateway.profile, mustChangePassword: true }
+    render(<AuthApp gateway={gateway} />)
+
+    expect(await screen.findByRole('heading', { name: '首次登录，请先修改密码' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '产品小组' })).not.toBeInTheDocument()
   })
 })

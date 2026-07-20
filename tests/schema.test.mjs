@@ -19,6 +19,10 @@ const softDeleteSql = await readFile(
   new URL('20260720000200_soft_delete_task_rpc.sql', migrationsUrl),
   'utf8',
 )
+const settingsRealtimeSql = await readFile(
+  new URL('20260720000300_account_settings_realtime.sql', migrationsUrl),
+  'utf8',
+)
 const businessTables = [
   'profiles',
   'workspaces',
@@ -154,4 +158,28 @@ test('owner template contains placeholders only', async () => {
   assert.match(template, /where w\.name = 'AnotherNotion'/)
   assert.match(template, /on conflict \(workspace_id, user_id\) do update/i)
   assert.match(template, /pg_advisory_xact_lock/i)
+})
+
+test('account settings are self-service without exposing protected flags', () => {
+  for (const column of ['notification_email', 'notification_email_verified_at', 'email_notifications_enabled', 'must_change_password']) {
+    assert.match(settingsRealtimeSql, new RegExp(`add column if not exists ${column}`, 'i'))
+  }
+  assert.match(sql, /profiles_update_self[\s\S]*?id = auth\.uid\(\)[\s\S]*?with check \(id = auth\.uid\(\)\)/i)
+  assert.match(settingsRealtimeSql, /grant update \(display_name, timezone, notification_email, email_notifications_enabled\)/i)
+  assert.doesNotMatch(settingsRealtimeSql, /grant update \([^)]*(must_change_password|notification_email_verified_at)/i)
+  assert.match(settingsRealtimeSql, /complete_password_change[\s\S]*?where id = auth\.uid\(\)/i)
+})
+
+test('shared workspace tables use RLS-filtered realtime', () => {
+  for (const table of ['tasks', 'labels', 'task_labels', 'comments']) {
+    assert.match(settingsRealtimeSql, new RegExp(`'${table}'`, 'i'))
+    assert.match(settingsRealtimeSql, new RegExp(`alter table public\\.${table} replica identity full`, 'i'))
+  }
+  assert.doesNotMatch(settingsRealtimeSql, /disable row level security|\bto anon\b/i)
+})
+
+test('task schedule columns store UTC-capable timestamps', () => {
+  assert.match(settingsRealtimeSql, /alter column start_date type timestamptz/i)
+  assert.match(settingsRealtimeSql, /alter column due_date type timestamptz/i)
+  assert.match(settingsRealtimeSql, /at time zone 'UTC'/i)
 })

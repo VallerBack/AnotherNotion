@@ -15,6 +15,10 @@ type ProfileRow = {
   id: string
   display_name: string
   timezone: string
+  notification_email: string | null
+  notification_email_verified_at: string | null
+  email_notifications_enabled: boolean
+  must_change_password: boolean
   created_at: string
   updated_at: string
 }
@@ -92,7 +96,7 @@ type TableDefinition<Row, Insert, Update> = {
 export interface Database {
   public: {
     Tables: {
-      profiles: TableDefinition<ProfileRow, never, Pick<ProfileRow, 'display_name' | 'timezone'>>
+      profiles: TableDefinition<ProfileRow, never, Pick<ProfileRow, 'display_name' | 'timezone' | 'notification_email' | 'email_notifications_enabled'>>
       workspaces: TableDefinition<WorkspaceRow, never, Pick<WorkspaceRow, 'name'>>
       workspace_members: TableDefinition<WorkspaceMemberRow, never, never>
       tasks: TableDefinition<
@@ -125,6 +129,7 @@ export interface Database {
       soft_delete_task: { Args: { p_task_id: string }; Returns: undefined }
       restore_task: { Args: { p_task_id: string }; Returns: undefined }
       permanently_delete_task: { Args: { p_task_id: string }; Returns: undefined }
+      complete_password_change: { Args: Record<string, never>; Returns: undefined }
     }
     Enums: {
       workspace_role: WorkspaceRole

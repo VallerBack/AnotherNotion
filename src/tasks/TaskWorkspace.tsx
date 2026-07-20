@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { DateTime } from 'luxon'
 import { useAuth } from '../auth/auth-context'
 import type {
   TaskComment,
@@ -33,15 +34,13 @@ const viewTitles: Record<TaskView, string> = {
   trash: 'Trash',
 }
 
-function toLocalDateTime(value: string | null) {
+function toLocalDateTime(value: string | null, timezone: string) {
   if (!value) return ''
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+  return DateTime.fromISO(value).setZone(timezone).toFormat("yyyy-MM-dd'T'HH:mm")
 }
 
-function fromLocalDateTime(value: string) {
-  return value ? new Date(value).toISOString() : null
+function fromLocalDateTime(value: string, timezone: string) {
+  return value ? DateTime.fromFormat(value, "yyyy-MM-dd'T'HH:mm", { zone: timezone }).toUTC().toISO() : null
 }
 
 export function taskToDraft(task: TaskRecord): TaskDraft {
@@ -60,14 +59,14 @@ export function taskToDraft(task: TaskRecord): TaskDraft {
   }
 }
 
-function formatSchedule(task: TaskRecord) {
+function formatSchedule(task: TaskRecord, timezone: string) {
   if (task.scheduleKind === 'all_day') {
     return [task.startDate, task.dueDate].filter(Boolean).join(' → ') || '全天'
   }
   if (task.scheduleKind === 'timed') {
     return [task.startAt, task.dueAt]
       .filter(Boolean)
-      .map((value) => new Date(value!).toLocaleString())
+      .map((value) => DateTime.fromISO(value!).setZone(timezone).toLocaleString(DateTime.DATETIME_MED))
       .join(' → ')
   }
   return '无日期'
@@ -88,6 +87,8 @@ export function TaskEditor({
   onSave(draft: TaskDraft): Promise<void>
   onCancel(): void
 }) {
+  const { profile } = useAuth()
+  const timezone = profile?.timezone ?? 'UTC'
   const [draft, setDraft] = useState<TaskDraft>(() =>
     task ? taskToDraft(task) : initialDraft ?? emptyDraft,
   )
@@ -179,10 +180,10 @@ export function TaskEditor({
           </>}
           {draft.scheduleKind === 'timed' && <>
             <label>开始时间
-              <input type="datetime-local" value={toLocalDateTime(draft.startAt)} onChange={(event) => setDraft({ ...draft, startAt: fromLocalDateTime(event.target.value) })} />
+              <input type="datetime-local" value={toLocalDateTime(draft.startAt, timezone)} onChange={(event) => setDraft({ ...draft, startAt: fromLocalDateTime(event.target.value, timezone) })} />
             </label>
             <label>截止时间
-              <input type="datetime-local" value={toLocalDateTime(draft.dueAt)} onChange={(event) => setDraft({ ...draft, dueAt: fromLocalDateTime(event.target.value) })} />
+              <input type="datetime-local" value={toLocalDateTime(draft.dueAt, timezone)} onChange={(event) => setDraft({ ...draft, dueAt: fromLocalDateTime(event.target.value, timezone) })} />
             </label>
           </>}
           <fieldset className="field--wide label-picker">
@@ -220,6 +221,7 @@ function Comments({ repository, task }: { repository: TaskRepository; task: Task
   }, [repository, task.id, task.workspaceId])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => repository.subscribeWorkspace?.(task.workspaceId, () => { void load() }), [load, repository, task.workspaceId])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -273,7 +275,7 @@ function Comments({ repository, task }: { repository: TaskRepository; task: Task
 }
 
 export function TaskBoard({ repository, view }: { repository: TaskRepository; view: TaskView }) {
-  const { session, memberships } = useAuth()
+  const { session, profile, memberships } = useAuth()
   const workspace = memberships[0]
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
@@ -288,7 +290,7 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
     setLoading(true)
     try {
       const [nextTasks, nextLabels, nextMembers] = await Promise.all([
-        repository.listTasks(workspace.workspaceId, session.user.id, view),
+        repository.listTasks(workspace.workspaceId, session.user.id, view, profile?.timezone ?? 'UTC'),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
       ])
@@ -301,9 +303,10 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
     } finally {
       setLoading(false)
     }
-  }, [repository, session, view, workspace.workspaceId])
+  }, [profile?.timezone, repository, session, view, workspace.workspaceId])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => repository.subscribeWorkspace?.(workspace.workspaceId, () => { void load() }), [load, repository, workspace.workspaceId])
 
   async function save(draft: TaskDraft) {
     if (!session) return
@@ -338,7 +341,7 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
         <button className="task-main" onClick={() => setSelected(task)}>
           <span className={`status-pill status--${task.status}`}>{task.status.replace('_', ' ')}</span>
           <strong>{task.title}</strong>
-          <span className="muted">{formatSchedule(task)}</span>
+          <span className="muted">{formatSchedule(task, profile?.timezone ?? 'UTC')}</span>
           <span className="priority-text">{task.priority}</span>
         </button>
         <div className="task-actions">
@@ -376,6 +379,7 @@ export function LabelsPage({ repository }: { repository: TaskRepository }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : '加载标签失败') }
   }, [repository, workspace.workspaceId])
   useEffect(() => { void load() }, [load])
+  useEffect(() => repository.subscribeWorkspace?.(workspace.workspaceId, () => { void load() }), [load, repository, workspace.workspaceId])
 
   async function submit(event: FormEvent) {
     event.preventDefault()

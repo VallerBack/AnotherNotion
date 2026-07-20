@@ -606,3 +606,18 @@ code {
     font-size: 1.15rem;
   }
 }
+/* Account settings */
+.settings-stack {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.checkbox-row input {
+  width: auto;
+}

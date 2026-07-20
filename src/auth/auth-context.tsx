@@ -54,39 +54,83 @@ export function AuthProvider({
   children: ReactNode
 }) {
   const [state, setState] = useState(initialState)
+  const stateRef = useRef(state)
   const requestId = useRef(0)
   const manualLogout = useRef(false)
+  const initialSessionHandled = useRef(false)
+  const hydration = useRef<{ userId: string; promise: Promise<void> } | null>(null)
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
   const hydrate = useCallback(
-    async (session: AuthSession) => {
+    (session: AuthSession) => {
+      const existing = hydration.current
+      if (existing?.userId === session.user.id) return existing.promise
+
       const currentRequest = ++requestId.current
-      setState((current) => ({ ...current, status: 'loading', error: null }))
-      try {
-        const [profile, memberships] = await Promise.all([
-          gateway.loadProfile(session.user.id),
-          gateway.loadMemberships(session.user.id),
-        ])
-        if (currentRequest !== requestId.current) return
-        setState({
-          status: 'authenticated',
-          session,
-          profile,
-          memberships,
-          error: null,
-        })
-      } catch (error) {
-        if (currentRequest !== requestId.current) return
-        setState({
-          status: 'error',
-          session,
-          profile: null,
-          memberships: [],
-          error: getAuthErrorMessage(error, '加载账户'),
-        })
+      const current = stateRef.current
+      const sameReadyUser = current.status === 'authenticated'
+        && current.session?.user.id === session.user.id
+        && current.profile !== null
+      if (!sameReadyUser) {
+        setState((previous) => ({ ...previous, status: 'loading', error: null }))
       }
+
+      const promise = (async () => {
+        try {
+          const [profile, memberships] = await Promise.all([
+            gateway.loadProfile(session.user.id),
+            gateway.loadMemberships(session.user.id),
+          ])
+          if (currentRequest !== requestId.current) return
+          setState({
+            status: 'authenticated',
+            session,
+            profile,
+            memberships,
+            error: null,
+          })
+        } catch (error) {
+          if (currentRequest !== requestId.current) return
+          if (sameReadyUser) {
+            setState((previous) => ({
+              ...previous,
+              session,
+              error: getAuthErrorMessage(error, '刷新账户'),
+            }))
+          } else {
+            setState({
+              status: 'error',
+              session,
+              profile: null,
+              memberships: [],
+              error: getAuthErrorMessage(error, '加载账户'),
+            })
+          }
+        }
+      })()
+      hydration.current = { userId: session.user.id, promise }
+      void promise.finally(() => {
+        if (hydration.current?.promise === promise) hydration.current = null
+      })
+      return promise
     },
     [gateway],
   )
+
+  const refreshProfile = useCallback((session: AuthSession) => {
+    void gateway.loadProfile(session.user.id).then((profile) => {
+      const current = stateRef.current
+      if (current.status !== 'authenticated' || current.session?.user.id !== session.user.id) return
+      setState((previous) => ({ ...previous, session, profile, error: null }))
+    }).catch((error) => {
+      const current = stateRef.current
+      if (current.status !== 'authenticated' || current.session?.user.id !== session.user.id) return
+      setState((previous) => ({ ...previous, error: getAuthErrorMessage(error, '刷新账户') }))
+    })
+  }, [gateway])
 
   const setAnonymous = useCallback((error: string | null = null) => {
     requestId.current += 1
@@ -95,13 +139,46 @@ export function AuthProvider({
 
   useEffect(() => {
     let active = true
+    const restoreInitialSession = (session: AuthSession | null) => {
+      if (!active || initialSessionHandled.current) return
+      initialSessionHandled.current = true
+      if (session) void hydrate(session)
+      else setAnonymous()
+    }
+    const schedule = (action: () => void) => queueMicrotask(() => {
+      if (active) action()
+    })
+
     const unsubscribe = gateway.onAuthStateChange(({ event, session }) => {
-      if (!active || event === 'INITIAL_SESSION') return
+      if (!active) return
+      if (event === 'INITIAL_SESSION') {
+        schedule(() => restoreInitialSession(session))
+        return
+      }
       if (event === 'TOKEN_REFRESHED') {
         if (session) {
           setState((current) => current.status === 'authenticated'
             ? { ...current, session }
             : current)
+        }
+        return
+      }
+      if (event === 'SIGNED_IN' && session) {
+        const current = stateRef.current
+        const sameReadyUser = current.status === 'authenticated'
+          && current.session?.user.id === session.user.id
+          && current.profile !== null
+        if (sameReadyUser) setState((previous) => ({ ...previous, session }))
+        else schedule(() => { void hydrate(session) })
+        return
+      }
+      if (event === 'USER_UPDATED' && session) {
+        const current = stateRef.current
+        if (current.status === 'authenticated' && current.session?.user.id === session.user.id) {
+          setState((previous) => ({ ...previous, session }))
+          schedule(() => refreshProfile(session))
+        } else {
+          schedule(() => { void hydrate(session) })
         }
         return
       }
@@ -113,15 +190,12 @@ export function AuthProvider({
         setAnonymous(message)
         return
       }
-      if (session) void hydrate(session)
     })
 
     void gateway
       .getSession()
       .then((session) => {
-        if (!active) return
-        if (session) return hydrate(session)
-        setAnonymous()
+        restoreInitialSession(session)
       })
       .catch((error) => {
         if (!active) return
@@ -137,7 +211,7 @@ export function AuthProvider({
       requestId.current += 1
       unsubscribe()
     }
-  }, [gateway, hydrate, setAnonymous])
+  }, [gateway, hydrate, refreshProfile, setAnonymous])
 
   const login = useCallback(
     async (email: string, password: string) => {

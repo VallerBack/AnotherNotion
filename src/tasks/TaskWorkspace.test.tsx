@@ -17,8 +17,13 @@ const session = {
 } as AuthSession
 
 class AuthMock implements AuthGateway {
+  private listener: ((change: AuthChange) => void) | null = null
   getSession = vi.fn(async () => session)
-  onAuthStateChange(listener: (change: AuthChange) => void) { void listener; return () => undefined }
+  onAuthStateChange(listener: (change: AuthChange) => void) {
+    this.listener = listener
+    return () => { this.listener = null }
+  }
+  emit(change: AuthChange) { this.listener?.(change) }
   signIn = vi.fn(async () => session)
   signOut = vi.fn(async () => undefined)
   updatePassword = vi.fn(async () => undefined)
@@ -129,6 +134,29 @@ describe('核心任务模块', () => {
     expect(screen.getByText('准备发布')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '全部任务' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#/tasks')
+    expect(repository.listTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('标签页重新获得焦点并收到重复 SIGNED_IN 时保持布局、侧栏和当前页面', async () => {
+    window.location.hash = '#/tasks'
+    const auth = new AuthMock()
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [task]
+    render(<AuthApp gateway={auth} taskRepository={repository} />)
+    await screen.findByText('准备发布')
+
+    window.dispatchEvent(new Event('focus'))
+    auth.emit({
+      event: 'SIGNED_IN',
+      session: { ...session, access_token: 'focus-restored-session-token' },
+    })
+
+    await waitFor(() => expect(screen.queryByText('正在恢复登录状态…')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('主导航')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '全部任务' })).toBeInTheDocument()
+    expect(screen.getByText('准备发布')).toBeInTheDocument()
+    expect(auth.getSession).toHaveBeenCalledTimes(1)
+    expect(auth.loadProfile).toHaveBeenCalledTimes(1)
     expect(repository.listTasks).toHaveBeenCalledTimes(1)
   })
 

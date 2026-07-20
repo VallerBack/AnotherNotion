@@ -45,7 +45,7 @@ class MockAuthGateway implements AuthGateway {
   updateProfile = vi.fn(async () => undefined)
   requestNotificationEmailVerification = vi.fn(async () => undefined)
   verifyNotificationEmail = vi.fn(async () => undefined)
-  loadProfile = vi.fn(async () => this.profile)
+  loadProfile = vi.fn(async (userId: string) => ({ ...this.profile, id: userId }))
   loadMemberships = vi.fn(async () => this.memberships)
   loadTaskCount = vi.fn(async () => 3)
 
@@ -134,6 +134,56 @@ describe('认证访问控制', () => {
     expect(gateway.getSession).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('正在恢复登录状态…')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '产品小组' })).toBeInTheDocument()
+  })
+
+  it('相同用户的重复 SIGNED_IN 静默更新且不重新 hydrate', async () => {
+    const gateway = new MockAuthGateway()
+    gateway.currentSession = session
+    gateway.memberships = [membership]
+    render(<AuthApp gateway={gateway} />)
+    await screen.findByRole('heading', { name: '产品小组' })
+
+    gateway.emit({
+      event: 'SIGNED_IN',
+      session: { ...session, access_token: 'focus-restored-session-token' },
+    })
+
+    await waitFor(() => expect(screen.queryByText('正在恢复登录状态…')).not.toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: '产品小组' })).toBeInTheDocument()
+    expect(gateway.loadProfile).toHaveBeenCalledTimes(1)
+    expect(gateway.loadMemberships).toHaveBeenCalledTimes(1)
+  })
+
+  it('不同 user.id 的 SIGNED_IN 会重新加载对应账户', async () => {
+    const gateway = new MockAuthGateway()
+    gateway.currentSession = session
+    gateway.memberships = [membership]
+    render(<AuthApp gateway={gateway} />)
+    await screen.findByRole('heading', { name: '产品小组' })
+
+    gateway.emit({
+      event: 'SIGNED_IN',
+      session: {
+        ...session,
+        access_token: 'different-user-session-token',
+        user: { ...session.user, id: 'user-2' },
+      },
+    })
+
+    await waitFor(() => expect(gateway.loadProfile).toHaveBeenCalledWith('user-2'))
+    expect(gateway.loadMemberships).toHaveBeenCalledWith('user-2')
+    expect(gateway.loadProfile).toHaveBeenCalledTimes(2)
+  })
+
+  it('从未登录状态真正登录仍初始化 profile 和 membership', async () => {
+    const gateway = new MockAuthGateway()
+    gateway.memberships = [membership]
+    render(<AuthApp gateway={gateway} />)
+    await logIn(gateway)
+
+    expect(await screen.findByRole('heading', { name: '产品小组' })).toBeInTheDocument()
+    expect(gateway.loadProfile).toHaveBeenCalledTimes(1)
+    expect(gateway.loadMemberships).toHaveBeenCalledTimes(1)
   })
 
   it('无 membership 时显示等待状态且绝不加载任务', async () => {

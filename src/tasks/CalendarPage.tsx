@@ -6,7 +6,7 @@ import interactionPlugin, { type DateClickArg } from '@fullcalendar/interaction'
 import luxonPlugin from '@fullcalendar/luxon3'
 import type { EventClickArg, EventDropArg, EventInput } from '@fullcalendar/core'
 import { DateTime } from 'luxon'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE } from '../lib/datetime'
 import { TaskEditor, emptyDraft, taskToDraft } from './TaskWorkspace'
@@ -132,6 +132,7 @@ export async function persistCalendarDrop(
 
 export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const { session, profile, memberships } = useAuth()
+  const userId = session?.user.id
   const workspace = memberships[0]
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
@@ -142,6 +143,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const [label, setLabel] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const hasLoaded = useRef(false)
   const [editor, setEditor] = useState<{
     key: string
     task: TaskRecord | null
@@ -149,11 +151,11 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   } | null>(null)
 
   const load = useCallback(async () => {
-    if (!session) return
-    setLoading(true)
+    if (!userId) return
+    if (!hasLoaded.current) setLoading(true)
     try {
       const [nextTasks, nextLabels, nextMembers, nextReminderRecipients] = await Promise.all([
-        repository.listTasks(workspace.workspaceId, session.user.id, 'calendar', profile?.timezone ?? DEFAULT_TIMEZONE),
+        repository.listTasks(workspace.workspaceId, userId, 'calendar', profile?.timezone ?? DEFAULT_TIMEZONE),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
         repository.listEligibleReminderRecipients(workspace.workspaceId),
@@ -162,13 +164,14 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
       setLabels(nextLabels)
       setMembers(nextMembers)
       setReminderRecipients(nextReminderRecipients)
+      hasLoaded.current = true
       setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '加载日历失败')
     } finally {
       setLoading(false)
     }
-  }, [profile?.timezone, repository, session, workspace.workspaceId])
+  }, [profile?.timezone, repository, userId, workspace.workspaceId])
 
   useEffect(() => { void load() }, [load])
   useEffect(() => repository.subscribeWorkspace?.(workspace.workspaceId, () => { void load() }), [load, repository, workspace.workspaceId])
@@ -250,7 +253,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   return (
     <section className="content-panel calendar-panel">
       <div className="section-heading">
-        <div><p className="eyebrow">{workspace.workspaceName}</p><h2>Calendar</h2></div>
+        <div><p className="eyebrow">{workspace.workspaceName}</p><h2>日历</h2></div>
       </div>
       <div className="calendar-filters" aria-label="日历筛选">
         <label>状态<select value={status} onChange={(event) => setStatus(event.target.value)}>

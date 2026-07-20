@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   HashRouter,
   Link,
+  NavLink,
   Navigate,
   Route,
   Routes,
@@ -314,7 +315,7 @@ function SettingsPage() {
   return <section className="settings-stack">
     <section className="workspace-panel">
       <p className="eyebrow">ACCOUNT</p>
-      <h2>账号设置</h2>
+      <h2>设置</h2>
       {message && <div className="notice notice--success" role="status">{message}</div>}
       {error && <div className="notice notice--error" role="alert">{error}</div>}
       <form className="form" onSubmit={save}>
@@ -359,18 +360,18 @@ function VerifyNotificationEmailPage() {
     <p className="eyebrow">EMAIL VERIFICATION</p>
     <h1>{state === 'success' ? '验证成功' : state === 'error' ? '验证失败' : '正在验证'}</h1>
     <div className={`notice ${state === 'error' ? 'notice--error' : state === 'success' ? 'notice--success' : ''}`} role="status">{message}</div>
-    <Link className="button" to={state === 'success' ? '/settings' : '/login'}>{state === 'success' ? '返回账号设置' : '返回登录'}</Link>
+    <Link className="button" to={state === 'success' ? '/settings' : '/login'}>{state === 'success' ? '返回设置' : '返回登录'}</Link>
   </section></main>
 }
 
 const navigation = [
-  ['/today', 'Today'],
-  ['/calendar', 'Calendar'],
-  ['/tasks', 'All Tasks'],
-  ['/my-tasks', 'My Tasks'],
-  ['/trash', 'Trash'],
-  ['/labels', 'Labels'],
-  ['/settings', 'Settings'],
+  ['/today', '今日任务'],
+  ['/calendar', '日历'],
+  ['/tasks', '全部任务'],
+  ['/my-tasks', '我的任务'],
+  ['/trash', '回收站'],
+  ['/labels', '标签'],
+  ['/settings', '设置'],
 ] as const
 
 function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
@@ -378,16 +379,19 @@ function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <Link className="brand" to="/">AnotherNotion</Link>
+        <Link className="brand" to="/" aria-label="AnotherNotion 首页">
+          <img src={`${import.meta.env.BASE_URL}Logo.png`} alt="" />
+          <span>AnotherNotion</span>
+        </Link>
         <nav aria-label="账户导航">
           <span>{profile?.displayName}</span>
-          <Link to="/settings">账号设置</Link>
+          <Link to="/settings">设置</Link>
           <button className="link-button" onClick={() => void logout()}>退出登录</button>
         </nav>
       </header>
       {taskRepository ? <div className="workspace-layout">
         <aside className="sidebar" aria-label="主导航">
-          {navigation.map(([to, label]) => <Link key={to} to={to}>{label}</Link>)}
+          {navigation.map(([to, label]) => <NavLink key={to} to={to}>{label}</NavLink>)}
         </aside>
         <div className="workspace-content"><Routes>
           <Route path="/" element={<Navigate to="/today" replace />} />

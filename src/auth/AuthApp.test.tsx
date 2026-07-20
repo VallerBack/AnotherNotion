@@ -117,7 +117,7 @@ describe('认证访问控制', () => {
     expect(gateway.loadProfile).not.toHaveBeenCalled()
   })
 
-  it('刷新后恢复已有会话，并响应 token 刷新', async () => {
+  it('TOKEN_REFRESHED 静默更新 session，不重新进入全屏加载或重复初始化账户', async () => {
     const gateway = new MockAuthGateway()
     gateway.currentSession = session
     gateway.memberships = [membership]
@@ -129,7 +129,10 @@ describe('认证访问控制', () => {
       session: { ...session, access_token: 'refreshed-session-token' },
     })
 
-    await waitFor(() => expect(gateway.loadProfile).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(gateway.loadProfile).toHaveBeenCalledTimes(1))
+    expect(gateway.loadMemberships).toHaveBeenCalledTimes(1)
+    expect(gateway.getSession).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('正在恢复登录状态…')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '产品小组' })).toBeInTheDocument()
   })
 
@@ -163,7 +166,7 @@ describe('认证访问控制', () => {
     const user = userEvent.setup()
     await screen.findByRole('heading', { name: '产品小组' })
 
-    await user.click(screen.getByRole('link', { name: '账号设置' }))
+    await user.click(screen.getByRole('link', { name: '设置' }))
     await user.type(screen.getByLabelText('新密码'), 'new-password')
     await user.type(screen.getByLabelText('确认新密码'), 'new-password')
     await user.click(screen.getByRole('button', { name: '更新密码' }))

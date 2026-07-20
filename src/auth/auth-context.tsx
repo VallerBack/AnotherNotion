@@ -97,7 +97,15 @@ export function AuthProvider({
     let active = true
     const unsubscribe = gateway.onAuthStateChange(({ event, session }) => {
       if (!active || event === 'INITIAL_SESSION') return
-      if (!session) {
+      if (event === 'TOKEN_REFRESHED') {
+        if (session) {
+          setState((current) => current.status === 'authenticated'
+            ? { ...current, session }
+            : current)
+        }
+        return
+      }
+      if (event === 'SIGNED_OUT') {
         const message = manualLogout.current
           ? null
           : '会话已过期，请重新登录。'
@@ -105,7 +113,7 @@ export function AuthProvider({
         setAnonymous(message)
         return
       }
-      void hydrate(session)
+      if (session) void hydrate(session)
     })
 
     void gateway

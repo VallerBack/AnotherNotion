@@ -99,6 +99,39 @@ afterEach(() => {
 })
 
 describe('核心任务模块', () => {
+  it('侧栏路由导航不触发整页重载或重新初始化认证', async () => {
+    const auth = new AuthMock()
+    const repository = new TaskRepositoryMock()
+    render(<AuthApp gateway={auth} taskRepository={repository} />)
+    const user = userEvent.setup()
+    const beforeUnload = vi.fn()
+    window.addEventListener('beforeunload', beforeUnload)
+
+    expect(await screen.findByRole('heading', { name: '今日任务' })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: '全部任务' }))
+
+    expect(await screen.findByRole('heading', { name: '全部任务' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/tasks')
+    expect(auth.getSession).toHaveBeenCalledTimes(1)
+    expect(beforeUnload).not.toHaveBeenCalled()
+    window.removeEventListener('beforeunload', beforeUnload)
+  })
+
+  it('visibilitychange 不清空当前任务、页面状态或触发全量重载', async () => {
+    window.location.hash = '#/tasks'
+    const repository = new TaskRepositoryMock()
+    repository.tasks = [task]
+    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
+
+    expect(await screen.findByText('准备发布')).toBeInTheDocument()
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(screen.getByText('准备发布')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '全部任务' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/tasks')
+    expect(repository.listTasks).toHaveBeenCalledTimes(1)
+  })
+
   it('创建任务时仅由认证上下文注入 workspace 和用户 ID', async () => {
     const auth = new AuthMock()
     const repository = new TaskRepositoryMock()

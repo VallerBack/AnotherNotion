@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { DateTime } from 'luxon'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
@@ -32,11 +32,11 @@ export const emptyDraft: TaskDraft = {
 }
 
 const viewTitles: Record<TaskView, string> = {
-  today: 'Today',
-  calendar: 'Calendar',
-  all: 'All Tasks',
-  mine: 'My Tasks',
-  trash: 'Trash',
+  today: '今日任务',
+  calendar: '日历',
+  all: '全部任务',
+  mine: '我的任务',
+  trash: '回收站',
 }
 
 export function taskToDraft(task: TaskRecord): TaskDraft {
@@ -475,6 +475,7 @@ function Reminders({ repository, task }: { repository: TaskRepository; task: Tas
 
 export function TaskBoard({ repository, view }: { repository: TaskRepository; view: TaskView }) {
   const { session, profile, memberships } = useAuth()
+  const userId = session?.user.id
   const workspace = memberships[0]
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
@@ -484,13 +485,14 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<TaskRecord | 'new' | null>(null)
   const [selected, setSelected] = useState<TaskRecord | null>(null)
+  const hasLoaded = useRef(false)
 
   const load = useCallback(async () => {
-    if (!session) return
-    setLoading(true)
+    if (!userId) return
+    if (!hasLoaded.current) setLoading(true)
     try {
       const [nextTasks, nextLabels, nextMembers, nextReminderRecipients] = await Promise.all([
-        repository.listTasks(workspace.workspaceId, session.user.id, view, profile?.timezone ?? DEFAULT_TIMEZONE),
+        repository.listTasks(workspace.workspaceId, userId, view, profile?.timezone ?? DEFAULT_TIMEZONE),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
         repository.listEligibleReminderRecipients(workspace.workspaceId),
@@ -499,13 +501,14 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
       setLabels(nextLabels)
       setMembers(nextMembers)
       setReminderRecipients(nextReminderRecipients)
+      hasLoaded.current = true
       setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '加载任务失败')
     } finally {
       setLoading(false)
     }
-  }, [profile?.timezone, repository, session, view, workspace.workspaceId])
+  }, [profile?.timezone, repository, userId, view, workspace.workspaceId])
 
   useEffect(() => { void load() }, [load])
   useEffect(() => repository.subscribeWorkspace?.(workspace.workspaceId, () => { void load() }), [load, repository, workspace.workspaceId])
@@ -617,7 +620,7 @@ export function LabelsPage({ repository }: { repository: TaskRepository }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : '删除标签失败') }
   }
 
-  return <section className="content-panel"><p className="eyebrow">ORGANIZE</p><h2>Labels</h2>
+  return <section className="content-panel"><p className="eyebrow">整理</p><h2>标签</h2>
     {error && <div className="notice notice--error" role="alert">{error}</div>}
     <form className="inline-form" onSubmit={submit}>
       <input aria-label="标签名称" required maxLength={50} value={name} onChange={(event) => setName(event.target.value)} />

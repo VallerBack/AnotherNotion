@@ -341,3 +341,17 @@ test('reminder verification script is read-only', async () => {
   assert.match(verification, /^\s*select\b/i)
   assert.doesNotMatch(verification, /\b(insert|update|delete|drop|truncate|alter|create)\b/i)
 })
+
+test('internal navigation cannot trigger a full-page reload', async () => {
+  const sourceRoot = new URL('../src/', import.meta.url)
+  const navigationSources = await Promise.all([
+    readFile(new URL('App.tsx', sourceRoot), 'utf8'),
+    readFile(new URL('tasks/TaskWorkspace.tsx', sourceRoot), 'utf8'),
+    readFile(new URL('tasks/CalendarPage.tsx', sourceRoot), 'utf8'),
+  ])
+  const navigationCode = navigationSources.join('\n')
+  assert.doesNotMatch(navigationCode, /<a\b[^>]*href=/i)
+  assert.doesNotMatch(navigationCode, /(?:window\.)?location\.(?:reload|assign|href)/i)
+  assert.match(navigationCode, /<HashRouter>/)
+  assert.match(navigationCode, /<NavLink key=\{to\} to=\{to\}>/)
+})

@@ -152,10 +152,19 @@ h2 {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   color: #242421;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 1.35rem;
   text-decoration: none;
+}
+
+.brand img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .topbar nav {
@@ -212,6 +221,11 @@ h2 {
 
 .sidebar a:hover {
   background: #e7e7e1;
+}
+
+.sidebar a.active {
+  background: #deded7;
+  font-weight: 650;
 }
 
 .workspace-content {

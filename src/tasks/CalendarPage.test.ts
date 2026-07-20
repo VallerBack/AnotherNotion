@@ -14,6 +14,7 @@ const allDayTask: TaskRecord = {
   status: 'todo',
   priority: 'medium',
   assigneeId: null,
+  assigneeIds: [],
   scheduleKind: 'all_day',
   startDate: '2026-07-20',
   startAt: null,

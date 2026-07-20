@@ -85,7 +85,10 @@ type CommentRow = {
   body_md: string
   created_at: string
   updated_at: string
+  updated_by: string | null
 }
+
+type TaskAssigneeRow = { task_id: string; user_id: string; workspace_id: string; assigned_by: string; assigned_at: string }
 
 type TaskReminderRow = {
   id: string
@@ -131,6 +134,7 @@ export interface Database {
         Pick<TaskLabelRow, 'task_id' | 'label_id' | 'workspace_id'>,
         never
       >
+      task_assignees: TableDefinition<TaskAssigneeRow, Pick<TaskAssigneeRow, 'task_id' | 'user_id' | 'workspace_id' | 'assigned_by'>, never>
       comments: TableDefinition<
         CommentRow,
         Pick<CommentRow, 'workspace_id' | 'task_id' | 'author_id' | 'body_md'>,
@@ -156,6 +160,10 @@ export interface Database {
       list_reminder_recipient_capabilities: { Args: { p_workspace_id: string }; Returns: { user_id: string; display_name: string; can_receive_email: boolean }[] }
       create_task_with_reminders: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: string }
       update_task_with_reminders: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: undefined }
+      create_task_with_reminders_v2: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: string }
+      update_task_with_reminders_v2: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: undefined }
+      cancel_notification_email_verification_issue: { Args: { p_token_hash: string }; Returns: undefined }
+      set_task_assignees: { Args: { p_task_id: string; p_assignee_ids: string[] }; Returns: undefined }
     }
     Enums: {
       workspace_role: WorkspaceRole

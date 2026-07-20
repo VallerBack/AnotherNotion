@@ -10,11 +10,13 @@ import {
 } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/auth-context'
 import { getAuthErrorMessage } from './auth/auth-errors'
-import { DEFAULT_TIMEZONE, timezoneLabel } from './lib/datetime'
+import { DEFAULT_TIMEZONE } from './lib/datetime'
+import { timezoneOptions } from './lib/timezones'
 import { SupabaseAuthGateway, type AuthGateway } from './auth/auth-gateway'
 import { LabelsPage, TaskBoard } from './tasks/TaskWorkspace'
 import { CalendarPage } from './tasks/CalendarPage'
 import { TaskDetailsPage } from './tasks/TaskDetailsPage'
+import { TaskActivityPage } from './tasks/TaskActivityPage'
 import {
   SupabaseTaskRepository,
   type TaskRepository,
@@ -273,11 +275,12 @@ function SettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [sendingVerification, setSendingVerification] = useState(false)
-  const timezoneOptions = (() => {
-    const intl = Intl as typeof Intl & { supportedValuesOf?: (key: 'timeZone') => string[] }
-    const values = intl.supportedValuesOf?.('timeZone') ?? ['UTC', 'Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York']
-    return values.includes(timezone) ? values : [timezone, ...values]
-  })()
+  const [resendSeconds, setResendSeconds] = useState(0)
+  useEffect(() => {
+    if (resendSeconds <= 0) return
+    const timer = window.setInterval(() => setResendSeconds((value) => Math.max(0, value - 1)), 1000)
+    return () => window.clearInterval(timer)
+  }, [resendSeconds])
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -305,7 +308,8 @@ function SettingsPage() {
     setError(null)
     try {
       await gateway.requestNotificationEmailVerification()
-      setMessage('如果通知邮箱有效，验证邮件将很快送达。')
+      setMessage('已发送，请检查收件箱和垃圾邮件。')
+      setResendSeconds(60)
     } catch (reason) {
       setError(getAuthErrorMessage(reason, '发送验证邮件'))
     } finally {
@@ -321,15 +325,15 @@ function SettingsPage() {
       {error && <div className="notice notice--error" role="alert">{error}</div>}
       <form className="form" onSubmit={save}>
         <label>显示名<input required maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
-        <label>IANA 时区
+        <label>时区
           <select value={timezone} onChange={(event) => setTimezone(event.target.value)}>
-            {timezoneOptions.map((zone) => <option key={zone} value={zone}>{timezoneLabel(zone)}</option>)}
+            {timezoneOptions(timezone).map((zone) => <option key={zone.value} value={zone.value}>{zone.label}</option>)}
           </select>
         </label>
         <label>通知邮箱<input type="email" maxLength={320} value={notificationEmail} onChange={(event) => { setNotificationEmail(event.target.value); if (!event.target.value) setNotificationsEnabled(false) }} /></label>
         <p className="muted">验证状态：{profile?.notificationEmailVerifiedAt ? '已验证' : '未验证'}</p>
-        <button type="button" className="button" disabled={!profile?.notificationEmail || sendingVerification} onClick={() => void sendVerification()}>
-          {sendingVerification ? '发送中…' : '发送验证邮件'}
+        <button type="button" className="button" disabled={!profile?.notificationEmail || sendingVerification || resendSeconds > 0} onClick={() => void sendVerification()}>
+          {sendingVerification ? '发送中…' : resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '发送验证邮件'}
         </button>
         <label className="checkbox-row"><input type="checkbox" checked={notificationsEnabled} disabled={!notificationEmail} onChange={(event) => setNotificationsEnabled(event.target.checked)} />启用邮件提醒</label>
         <button className="button button--primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button>
@@ -340,7 +344,7 @@ function SettingsPage() {
 }
 
 function VerifyNotificationEmailPage() {
-  const { gateway } = useAuth()
+  const { gateway, retry } = useAuth()
   const location = useLocation()
   const token = new URLSearchParams(location.search).get('token')
   const [state, setState] = useState<'verifying' | 'success' | 'error'>(token ? 'verifying' : 'error')
@@ -349,13 +353,14 @@ function VerifyNotificationEmailPage() {
   useEffect(() => {
     if (!token) return
     let active = true
-    void gateway.verifyNotificationEmail(token).then(() => {
+    void gateway.verifyNotificationEmail(token).then(async () => {
+      await retry()
       if (active) { setState('success'); setMessage('通知邮箱验证成功。') }
     }).catch((reason) => {
       if (active) { setState('error'); setMessage(getAuthErrorMessage(reason, '验证通知邮箱')) }
     })
     return () => { active = false }
-  }, [gateway, token])
+  }, [gateway, retry, token])
 
   return <main className="screen"><section className="card card--center">
     <p className="eyebrow">EMAIL VERIFICATION</p>
@@ -400,6 +405,7 @@ function AppLayout({ taskRepository }: { taskRepository?: TaskRepository }) {
           <Route path="/calendar" element={<CalendarPage repository={taskRepository} />} />
           <Route path="/tasks" element={<TaskBoard repository={taskRepository} view="all" />} />
           <Route path="/tasks/:taskId" element={<TaskDetailsPage repository={taskRepository} />} />
+          <Route path="/tasks/:taskId/activity" element={<TaskActivityPage repository={taskRepository} />} />
           <Route path="/my-tasks" element={<TaskBoard repository={taskRepository} view="mine" />} />
           <Route path="/trash" element={<TaskBoard repository={taskRepository} view="trash" />} />
           <Route path="/labels" element={<LabelsPage repository={taskRepository} />} />

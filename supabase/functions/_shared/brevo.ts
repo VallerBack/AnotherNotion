@@ -13,6 +13,12 @@ export function escapeHtml(value: string) {
   })[character]!)
 }
 
+export class EmailDeliveryError extends Error {
+  constructor(public status: number, public category: string, public messageId?: string) {
+    super('Email provider rejected the request')
+  }
+}
+
 export async function sendEmail(message: EmailMessage) {
   const dryRun = Deno.env.get('EMAIL_DRY_RUN')?.toLowerCase() === 'true'
   if (dryRun) {
@@ -37,7 +43,15 @@ export async function sendEmail(message: EmailMessage) {
       ...(message.idempotencyKey ? { headers: { 'Idempotency-Key': message.idempotencyKey } } : {}),
     }),
   })
-  if (!response.ok) throw new Error(`Brevo request failed with status ${response.status}`)
-  return { dryRun: false }
+  const result = await response.json().catch(() => ({})) as { messageId?: string; code?: string }
+  if (!response.ok) {
+    const category = response.status === 429 ? 'rate_limited'
+      : response.status === 401 || response.status === 403 ? 'provider_auth'
+      : response.status >= 500 ? 'provider_unavailable'
+      : result.code === 'invalid_parameter' ? 'invalid_recipient_or_sender' : 'provider_rejected'
+    console.error(JSON.stringify({ event: 'brevo_request_rejected', status: response.status, messageId: result.messageId ?? null, category }))
+    throw new EmailDeliveryError(response.status, category, result.messageId)
+  }
+  console.info(JSON.stringify({ event: 'brevo_request_accepted', status: response.status, messageId: result.messageId ?? null, category: 'accepted' }))
+  return { dryRun: false, messageId: result.messageId }
 }
-

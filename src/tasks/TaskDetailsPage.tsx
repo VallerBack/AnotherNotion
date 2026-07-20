@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE, formatInTimezone, timezoneLabel } from '../lib/datetime'
+import { Markdown } from '../components/Markdown'
+import { REMINDER_STATUS_LABELS, TASK_PRIORITY_LABELS, TASK_STATUS_LABELS } from './task-labels'
 import type {
   TaskRecord,
   TaskReminder,
@@ -16,8 +18,6 @@ type TaskDetailLocationState = {
   cachedTask?: TaskRecord
 }
 
-const statusLabels = { todo: '待处理', in_progress: '进行中', done: '已完成' } as const
-const priorityLabels = { low: '低', medium: '中', high: '高', urgent: '紧急' } as const
 const scheduleLabels = { none: '无日期', all_day: '全天任务', timed: '精确时间' } as const
 
 function validReturnPath(value: string | undefined) {
@@ -126,9 +126,9 @@ export function TaskDetailsPage({ repository }: { repository: TaskRepository }) 
       {task.deletedAt && <span className="status-pill status--cancelled">位于回收站</span>}
     </div>
     <dl className="task-detail__grid">
-      <div><dt>状态</dt><dd>{statusLabels[task.status]}</dd></div>
-      <div><dt>优先级</dt><dd>{priorityLabels[task.priority]}</dd></div>
-      <div><dt>负责人</dt><dd>{task.assigneeId ? memberNames.get(task.assigneeId) ?? '未知成员' : '未分配负责人'}</dd></div>
+      <div><dt>状态</dt><dd>{TASK_STATUS_LABELS[task.status]}</dd></div>
+      <div><dt>优先级</dt><dd>{TASK_PRIORITY_LABELS[task.priority]}</dd></div>
+      <div><dt>负责人</dt><dd>{task.assigneeIds.length ? task.assigneeIds.map((id) => memberNames.get(id) ?? '未知成员').join('、') : '未分配负责人'}</dd></div>
       <div><dt>标签</dt><dd>{labelNames.length > 0 ? labelNames.join('、') : '没有标签'}</dd></div>
       <div><dt>日期类型</dt><dd>{scheduleLabels[task.scheduleKind]}</dd></div>
       <div><dt>开始时间</dt><dd>{task.scheduleKind === 'all_day' ? task.startDate ?? '未设置' : formatInTimezone(task.startAt, timezone)}</dd></div>
@@ -141,9 +141,7 @@ export function TaskDetailsPage({ repository }: { repository: TaskRepository }) 
     </dl>
     <section className="task-detail__section">
       <h3>说明</h3>
-      {task.descriptionMd
-        ? <pre className="markdown-source">{task.descriptionMd}</pre>
-        : <p className="muted">没有任务说明。</p>}
+      <Markdown>{task.descriptionMd}</Markdown>
     </section>
     <section className="task-detail__section">
       <h3>邮件提醒</h3>
@@ -152,7 +150,7 @@ export function TaskDetailsPage({ repository }: { repository: TaskRepository }) 
         {reminders.map((reminder) => <li key={reminder.id}>
           <span>{formatInTimezone(reminder.remindAt, timezone)}</span>
           <span>{memberNames.get(reminder.recipientUserId) ?? '未知成员'}</span>
-          <span>{reminder.status}</span>
+          <span>{REMINDER_STATUS_LABELS[reminder.status]}</span>
         </li>)}
       </ul>}
     </section>

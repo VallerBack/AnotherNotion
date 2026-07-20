@@ -11,6 +11,7 @@ import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE } from '../lib/datetime'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { TaskEditor, emptyDraft, taskToDraft } from './TaskWorkspace'
+import { TASK_STATUS_LABELS } from './task-labels'
 import type {
   TaskDraft,
   TaskRecord,
@@ -187,7 +188,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const events = useMemo(
     () => tasks
       .filter((task) => status === 'all' || task.status === status)
-      .filter((task) => assignee === 'all' || task.assigneeId === assignee)
+      .filter((task) => assignee === 'all' || task.assigneeIds.includes(assignee))
       .filter((task) => label === 'all' || task.labelIds.includes(label))
       .map((task) => taskToCalendarEvent(task, labelMap))
       .filter((event): event is EventInput => event !== null),
@@ -263,7 +264,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
       </div>
       <div className="calendar-filters" aria-label="日历筛选">
         <label>状态<select value={status} onChange={(event) => setFilter('status', event.target.value)}>
-          <option value="all">全部</option><option value="todo">Todo</option><option value="in_progress">In Progress</option><option value="done">Done</option>
+          <option value="all">全部</option>{Object.entries(TASK_STATUS_LABELS).map(([value, text]) => <option key={value} value={value}>{text}</option>)}
         </select></label>
         <label>负责人<select value={assignee} onChange={(event) => setFilter('assignee', event.target.value)}>
           <option value="all">全部</option>{members.map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}

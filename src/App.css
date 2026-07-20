@@ -441,10 +441,27 @@ h2 {
 }
 
 .label-dot {
-  width: 9px;
-  height: 9px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
+  flex: 0 0 11px;
 }
+
+.reminder-toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: pointer; }
+.reminder-toggle-row span { display: flex; min-width: 0; flex-direction: column; }
+.reminder-toggle-row small { color: #777770; font-weight: normal; }
+.reminder-toggle-row input { flex: 0 0 auto; }
+.assignee-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.chip { border: 1px solid #d8d8d2; border-radius: 999px; padding: 3px 9px; background: #f7f7f4; }
+.markdown-preview, .markdown-rendered { min-width: 0; overflow-wrap: anywhere; }
+.markdown-rendered pre, .markdown-rendered table { max-width: 100%; overflow-x: auto; display: block; }
+.markdown-rendered img { max-width: 100%; height: auto; }
+.markdown-rendered input[type='checkbox'] { width: auto; }
+.detail-tabs { display: flex; gap: 16px; border-bottom: 1px solid #ddd; margin: 16px 0; }
+.detail-tabs a { padding: 8px 2px; text-decoration: none; color: inherit; }
+.detail-tabs a.active { border-bottom: 2px solid #222; font-weight: 700; }
+.task-activity > .reminders, .task-activity > .comments { margin-top: 24px; }
 
 .detail-drawer {
   position: fixed;

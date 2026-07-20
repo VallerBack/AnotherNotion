@@ -19,6 +19,7 @@ export type TaskRecord = {
   status: TaskStatus
   priority: TaskPriority
   assigneeId: string | null
+  assigneeIds: string[]
   scheduleKind: TaskScheduleKind
   startDate: string | null
   startAt: string | null
@@ -48,6 +49,8 @@ export type TaskComment = {
   authorName: string
   bodyMd: string
   createdAt: string
+  updatedAt: string
+  updatedBy: string | null
 }
 export type ReminderRecipient = { userId: string; displayName: string; canReceiveEmail: boolean }
 export type TaskReminderDraft = { enabled: boolean; recipientUserIds: string[]; remindAt: string | null }
@@ -60,6 +63,7 @@ export type TaskReminder = {
   attemptCount: number
   sentAt: string | null
   lastError: string | null
+  createdAt: string
 }
 
 export interface TaskRepository {
@@ -109,7 +113,7 @@ export function toDataError(error: { message: string; code?: string }) {
   return new Error(error.message)
 }
 
-function mapTask(row: TaskRow, labelIds: string[] = []): TaskRecord {
+function mapTask(row: TaskRow, labelIds: string[] = [], assigneeIds: string[] = []): TaskRecord {
   return {
     id: row.id,
     workspaceId: row.workspace_id,
@@ -118,6 +122,7 @@ function mapTask(row: TaskRow, labelIds: string[] = []): TaskRecord {
     status: row.status,
     priority: row.priority,
     assigneeId: row.assignee_id,
+    assigneeIds: assigneeIds.length > 0 ? assigneeIds : row.assignee_id ? [row.assignee_id] : [],
     scheduleKind: row.schedule_kind,
     startDate: row.start_date?.slice(0, 10) ?? null,
     startAt: row.start_at,
@@ -178,6 +183,7 @@ export class SupabaseTaskRepository implements TaskRepository {
 
     const taskIds = rows.map((row) => row.id)
     const labelsByTask = new Map<string, string[]>()
+    const assigneesByTask = new Map<string, string[]>()
     if (taskIds.length > 0) {
       const response = await this.client
         .from('task_labels')
@@ -190,10 +196,15 @@ export class SupabaseTaskRepository implements TaskRepository {
         labels.push(link.label_id)
         labelsByTask.set(link.task_id, labels)
       }
+      const assigneeResponse = await this.client.from('task_assignees').select('task_id, user_id')
+        .eq('workspace_id', workspaceId).in('task_id', taskIds)
+      for (const link of ensure(assigneeResponse.data, assigneeResponse.error)) {
+        assigneesByTask.set(link.task_id, [...(assigneesByTask.get(link.task_id) ?? []), link.user_id])
+      }
     }
 
-    const tasks = rows.map((row) => mapTask(row, labelsByTask.get(row.id)))
-    if (view === 'mine') return tasks.filter((task) => task.assigneeId === userId)
+    const tasks = rows.map((row) => mapTask(row, labelsByTask.get(row.id), assigneesByTask.get(row.id)))
+    if (view === 'mine') return tasks.filter((task) => task.assigneeIds.includes(userId))
     if (view === 'today') return tasks.filter((task) => isToday(task, timezone))
     return tasks
   }
@@ -223,25 +234,30 @@ export class SupabaseTaskRepository implements TaskRepository {
       .eq('workspace_id', workspaceId)
       .eq('task_id', taskId)
     const labelIds = ensure(labelsResponse.data, labelsResponse.error).map((link) => link.label_id)
-    return mapTask(row, labelIds)
+    const assigneeResponse = await this.client.from('task_assignees').select('user_id')
+      .eq('workspace_id', workspaceId).eq('task_id', taskId)
+    const assigneeIds = ensure(assigneeResponse.data, assigneeResponse.error).map((link) => link.user_id)
+    return mapTask(row, labelIds, assigneeIds)
   }
 
   async createTask(workspaceId: string, userId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {
     void userId
-    const response = await this.client.rpc('create_task_with_reminders', {
+    const response = await this.client.rpc('create_task_with_reminders_v2', {
       p_workspace_id: workspaceId, p_task: toTaskWrite(draft), p_label_ids: draft.labelIds,
+      p_assignee_ids: draft.assigneeIds,
       p_recipient_user_ids: reminder?.enabled ? reminder.recipientUserIds : [],
       p_remind_at: reminder?.enabled ? reminder.remindAt : null,
     })
     const taskId = ensure(response.data, response.error)
     const taskResponse = await this.client.from('tasks').select('*').eq('id', taskId).single()
-    return mapTask(ensure(taskResponse.data, taskResponse.error), draft.labelIds)
+    return mapTask(ensure(taskResponse.data, taskResponse.error), draft.labelIds, draft.assigneeIds)
   }
 
   async updateTask(taskId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {
     if (reminder) {
-      const { error } = await this.client.rpc('update_task_with_reminders', {
+      const { error } = await this.client.rpc('update_task_with_reminders_v2', {
         p_task_id: taskId, p_task: toTaskWrite(draft), p_label_ids: draft.labelIds,
+        p_assignee_ids: draft.assigneeIds,
         p_recipient_user_ids: reminder.enabled ? reminder.recipientUserIds : [],
         p_remind_at: reminder.enabled ? reminder.remindAt : null,
       })
@@ -260,6 +276,8 @@ export class SupabaseTaskRepository implements TaskRepository {
       .single()
     const task = ensure(workspaceResponse.data, workspaceResponse.error)
     await this.replaceLabels(task.workspace_id, taskId, draft.labelIds)
+    const assignment = await this.client.rpc('set_task_assignees', { p_task_id: taskId, p_assignee_ids: draft.assigneeIds })
+    if (assignment.error) throw toDataError(assignment.error)
   }
 
   async softDeleteTask(taskId: string) {
@@ -335,7 +353,7 @@ export class SupabaseTaskRepository implements TaskRepository {
   async listComments(workspaceId: string, taskId: string) {
     const response = await this.client
       .from('comments')
-      .select('id, task_id, author_id, body_md, created_at')
+      .select('id, task_id, author_id, body_md, created_at, updated_at, updated_by')
       .eq('workspace_id', workspaceId)
       .eq('task_id', taskId)
       .order('created_at')
@@ -354,6 +372,8 @@ export class SupabaseTaskRepository implements TaskRepository {
       authorName: names.get(comment.author_id) ?? '未知成员',
       bodyMd: comment.body_md,
       createdAt: comment.created_at,
+      updatedAt: comment.updated_at,
+      updatedBy: comment.updated_by,
     }))
   }
 
@@ -393,7 +413,7 @@ export class SupabaseTaskRepository implements TaskRepository {
 
   async listTaskReminders(workspaceId: string, taskId: string) {
     const response = await this.client.from('task_reminders')
-      .select('id, task_id, recipient_user_id, remind_at, status, attempt_count, sent_at, last_error')
+      .select('id, task_id, recipient_user_id, remind_at, status, attempt_count, sent_at, last_error, created_at')
       .eq('workspace_id', workspaceId)
       .eq('task_id', taskId)
       .order('remind_at')
@@ -406,6 +426,7 @@ export class SupabaseTaskRepository implements TaskRepository {
       attemptCount: reminder.attempt_count,
       sentAt: reminder.sent_at,
       lastError: reminder.last_error,
+      createdAt: reminder.created_at,
     }))
   }
 
@@ -433,7 +454,7 @@ export class SupabaseTaskRepository implements TaskRepository {
 
   subscribeWorkspace(workspaceId: string, onChange: () => void) {
     const channel = this.client.channel(`workspace:${workspaceId}`)
-    for (const table of ['tasks', 'labels', 'task_labels', 'comments', 'task_reminders'] as const) {
+    for (const table of ['tasks', 'labels', 'task_labels', 'task_assignees', 'comments', 'task_reminders'] as const) {
       channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table, filter: `workspace_id=eq.${workspaceId}` },

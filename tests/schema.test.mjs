@@ -43,6 +43,9 @@ const defaultTimezoneSql = await readFile(
   new URL('20260720000800_default_profile_timezone.sql', migrationsUrl),
   'utf8',
 )
+const activityAssigneesSql = await readFile(
+  new URL('20260720000900_task_activity_multi_assignees.sql', migrationsUrl), 'utf8',
+)
 const businessTables = [
   'profiles',
   'workspaces',
@@ -52,6 +55,7 @@ const businessTables = [
   'task_labels',
   'comments',
   'task_reminders',
+  'task_assignees',
   'notification_email_verification_tokens',
   'notification_email_verification_attempts',
 ]
@@ -319,6 +323,11 @@ test('edge functions implement auth boundaries, CORS, hashing, Brevo, and dry-ru
   assert.match(provider, /https:\/\/api\.brevo\.com\/v3\/smtp\/email/)
   assert.match(provider, /EMAIL_DRY_RUN/)
   assert.match(provider, /Idempotency-Key/)
+  assert.match(provider, /brevo_request_rejected/)
+  assert.match(provider, /messageId/)
+  assert.match(requestFunction, /cancel_notification_email_verification_issue/)
+  assert.match(requestFunction, /邮件服务暂时不可用/)
+  assert.match(requestFunction, /邮箱地址格式错误/)
   assert.ok(provider.indexOf("if (dryRun)") < provider.indexOf("fetch('https://api.brevo.com"))
   assert.match(sendFunction, /if \(result\.dryRun\) \{[\s\S]*?release_dry_run_task_reminder[\s\S]*?\} else \{[\s\S]*?mark_task_reminder_sent/)
   assert.match(config, /\[functions\.request-email-verification\][\s\S]*?verify_jwt = true/)
@@ -354,4 +363,21 @@ test('internal navigation cannot trigger a full-page reload', async () => {
   assert.doesNotMatch(navigationCode, /(?:window\.)?location\.(?:reload|assign|href)/i)
   assert.match(navigationCode, /<HashRouter>/)
   assert.match(navigationCode, /<NavLink key=\{to\} to=\{to\}>/)
+})
+
+test('multi-assignees are backfilled, member-protected, realtime, and old RPCs remain compatible', () => {
+  assert.match(activityAssigneesSql, /create table public\.task_assignees/i)
+  assert.match(activityAssigneesSql, /select id, assignee_id[\s\S]*where assignee_id is not null/i)
+  assert.match(activityAssigneesSql, /primary key \(task_id, user_id\)/i)
+  assert.match(activityAssigneesSql, /task_assignees_select_member[\s\S]*is_workspace_member\(workspace_id\)/i)
+  assert.match(activityAssigneesSql, /create_task_with_reminders_v2/i)
+  assert.match(activityAssigneesSql, /alter publication supabase_realtime add table public\.task_assignees/i)
+  assert.doesNotMatch(activityAssigneesSql, /disable row level security|\bto anon\b/i)
+})
+
+test('comment edits preserve author and record updater with a 5000 character cap', () => {
+  assert.match(activityAssigneesSql, /comments add column if not exists updated_by/i)
+  assert.match(activityAssigneesSql, /new\.updated_by := auth\.uid\(\)/i)
+  assert.match(activityAssigneesSql, /char_length\(body_md\) between 1 and 5000/i)
+  assert.doesNotMatch(activityAssigneesSql, /new\.author_id/i)
 })

@@ -48,6 +48,7 @@ const task: TaskRecord = {
   status: 'todo',
   priority: 'high',
   assigneeId: 'user-1',
+  assigneeIds: ['user-1'],
   scheduleKind: 'none',
   startDate: null,
   startAt: null,
@@ -130,6 +131,7 @@ describe('核心任务模块', () => {
       id: 'reminder-1', taskId: 'task-1', recipientUserId: 'user-1',
       remindAt: '2026-07-20T00:30:00.000Z', status: 'pending',
       attemptCount: 0, sentAt: null, lastError: null,
+      createdAt: '2026-07-19T00:00:00.000Z',
     }]
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
     const user = userEvent.setup()
@@ -138,7 +140,7 @@ describe('核心任务模块', () => {
 
     expect(await screen.findByRole('heading', { name: '准备发布' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#/tasks/task-1')
-    expect(screen.getByText('# 发布说明')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '发布说明' })).toBeInTheDocument()
     expect(screen.getByText('发布')).toBeInTheDocument()
     expect(screen.getAllByText('成员').length).toBeGreaterThan(0)
     expect(screen.getAllByText('2026年7月20日 01:00').length).toBeGreaterThan(0)
@@ -383,7 +385,8 @@ describe('核心任务模块', () => {
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
     const user = userEvent.setup()
 
-    await user.click(await screen.findByRole('button', { name: '提醒与评论' }))
+    await user.click(await screen.findByRole('link', { name: '提醒与评论' }))
+    expect(await screen.findByRole('heading', { name: '准备发布' })).toBeInTheDocument()
     await user.type(screen.getByLabelText(/提醒时间/), '2030-01-02T03:04')
     await user.click(screen.getByRole('checkbox', { name: /成员/ }))
     await user.click(screen.getByRole('button', { name: '创建提醒' }))

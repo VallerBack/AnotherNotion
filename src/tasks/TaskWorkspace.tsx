@@ -4,6 +4,8 @@ import { DateTime } from 'luxon'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE, timezoneLabel, utcToZonedInput, zonedInputToUtc } from '../lib/datetime'
+import { Markdown } from '../components/Markdown'
+import { REMINDER_STATUS_LABELS, TASK_PRIORITY_LABELS, TASK_STATUS_LABELS } from './task-labels'
 import type {
   TaskComment,
   TaskReminder,
@@ -23,6 +25,7 @@ export const emptyDraft: TaskDraft = {
   status: 'todo',
   priority: 'medium',
   assigneeId: null,
+  assigneeIds: [],
   scheduleKind: 'none',
   startDate: null,
   startAt: null,
@@ -46,6 +49,7 @@ export function taskToDraft(task: TaskRecord): TaskDraft {
     status: task.status,
     priority: task.priority,
     assigneeId: task.assigneeId,
+    assigneeIds: task.assigneeIds,
     scheduleKind: task.scheduleKind,
     startDate: task.startDate,
     startAt: task.startAt,
@@ -117,11 +121,11 @@ export function TaskEditor({
 
   useEffect(() => {
     if (recipientIds.length > 0) return
-    const preferred = draft.assigneeId ?? session?.user.id
+    const preferred = draft.assigneeIds[0] ?? session?.user.id
     if (preferred && reminderRecipients.find((recipient) => recipient.userId === preferred)?.canReceiveEmail) {
       setRecipientIds([preferred])
     }
-  }, [draft.assigneeId, recipientIds.length, reminderRecipients, session?.user.id])
+  }, [draft.assigneeIds, recipientIds.length, reminderRecipients, session?.user.id])
 
   function reminderAnchor() {
     if (draft.scheduleKind === 'timed') return draft.startAt ?? draft.dueAt
@@ -165,6 +169,14 @@ export function TaskEditor({
     }))
   }
 
+  function toggleAssignee(userId: string) {
+    setDraft((current) => {
+      const assigneeIds = current.assigneeIds.includes(userId)
+        ? current.assigneeIds.filter((id) => id !== userId) : [...current.assigneeIds, userId]
+      return { ...current, assigneeIds, assigneeId: assigneeIds[0] ?? null }
+    })
+  }
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="task-editor" role="dialog" aria-modal="true" aria-labelledby="task-editor-title">
@@ -180,27 +192,22 @@ export function TaskEditor({
           <label className="field--wide">Markdown 说明
             <textarea rows={6} value={draft.descriptionMd} onChange={(event) => setDraft({ ...draft, descriptionMd: event.target.value })} />
           </label>
+          <section className="field--wide markdown-preview" aria-label="说明预览"><strong>预览</strong><Markdown>{draft.descriptionMd}</Markdown></section>
           <label>状态
             <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as TaskDraft['status'] })}>
-              <option value="todo">Todo</option>
-              <option value="in_progress">In Progress</option>
-              <option value="done">Done</option>
+              {Object.entries(TASK_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
           <label>优先级
             <select value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as TaskDraft['priority'] })}>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
+              {Object.entries(TASK_PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <label>负责人
-            <select value={draft.assigneeId ?? ''} onChange={(event) => setDraft({ ...draft, assigneeId: event.target.value || null })}>
-              <option value="">未分配</option>
-              {members.map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}
-            </select>
-          </label>
+          <fieldset className="assignee-picker"><legend>负责人</legend>
+            {members.map((member) => <label key={member.userId} className="checkbox-row"><input type="checkbox" checked={draft.assigneeIds.includes(member.userId)} onChange={() => toggleAssignee(member.userId)} />{member.displayName}</label>)}
+            {draft.assigneeIds.length === 0 && <span className="muted">无负责人</span>}
+            <div className="chip-list">{draft.assigneeIds.map((id) => <span className="chip" key={id}>{members.find((m) => m.userId === id)?.displayName ?? '成员'}</span>)}</div>
+          </fieldset>
           <label>日期类型
             <select
               value={draft.scheduleKind}
@@ -240,9 +247,9 @@ export function TaskEditor({
           </>}
           <fieldset className="field--wide reminder-editor">
             <legend>邮件提醒</legend>
-            <label className="checkbox-row">
+            <label className="reminder-toggle-row">
+              <span><strong>启用邮件提醒</strong><small>按所选时区发送给指定成员</small></span>
               <input type="checkbox" aria-label="启用邮件提醒" checked={reminderEnabled} disabled={draft.scheduleKind === 'none'} onChange={(event) => setReminderEnabled(event.target.checked)} />
-              启用邮件提醒
             </label>
             {draft.scheduleKind === 'none' && <span className="muted">无日期任务不能启用提醒。</span>}
             {reminderEnabled && <>
@@ -257,6 +264,7 @@ export function TaskEditor({
                 <input type="datetime-local" value={customReminderAt} onChange={(event) => setCustomReminderAt(event.target.value)} />
               </label>}
               <div className="reminder-recipient-picker"><strong>收件人</strong>
+                {draft.assigneeIds.length > 0 && <button type="button" className="link-button" onClick={() => setRecipientIds(draft.assigneeIds.filter((id) => reminderRecipients.find((recipient) => recipient.userId === id)?.canReceiveEmail))}>选择全部负责人</button>}
                 {reminderRecipients.map((recipient) => <label key={recipient.userId} className="checkbox-row">
                   <input type="checkbox" disabled={!recipient.canReceiveEmail} checked={recipientIds.includes(recipient.userId)} onChange={() => setRecipientIds((current) => current.includes(recipient.userId) ? current.filter((id) => id !== recipient.userId) : [...current, recipient.userId])} />
                   {recipient.displayName} <span className="muted">{recipient.canReceiveEmail ? '可以接收提醒' : '邮箱未就绪'}</span>
@@ -273,6 +281,7 @@ export function TaskEditor({
                 <span className="label-dot" style={{ backgroundColor: label.color }} />{label.name}
               </label>
             ))}
+            <div className="chip-list">{labels.filter((label) => draft.labelIds.includes(label.id)).map((label) => <span className="chip" key={label.id}><span className="label-dot" style={{ backgroundColor: label.color }} />{label.name}</span>)}</div>
           </fieldset>
           <div className="actions field--wide">
             <button className="button button--primary" disabled={saving}>{saving ? '保存中…' : '保存任务'}</button>
@@ -285,12 +294,14 @@ export function TaskEditor({
 }
 
 export function Comments({ repository, task }: { repository: TaskRepository; task: TaskRecord }) {
-  const { session } = useAuth()
+  const { session, profile } = useAuth()
   const [comments, setComments] = useState<TaskComment[]>([])
   const [body, setBody] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const load = useCallback(async () => {
+    setSubmitting(true)
     try {
       setComments(await repository.listComments(task.workspaceId, task.id))
       setError(null)
@@ -311,7 +322,7 @@ export function Comments({ repository, task }: { repository: TaskRepository; tas
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '发表评论失败')
-    }
+    } finally { setSubmitting(false) }
   }
 
   async function editComment(comment: TaskComment) {
@@ -339,7 +350,9 @@ export function Comments({ repository, task }: { repository: TaskRepository; tas
     {error && <div className="notice notice--error" role="alert">{error}</div>}
     {comments.length === 0 ? <p className="muted">还没有评论。</p> : comments.map((comment) => (
       <article key={comment.id} className="comment">
-        <strong>{comment.authorName}</strong><p>{comment.bodyMd}</p>
+        <strong>{comment.authorName}</strong>
+        <span className="muted">{DateTime.fromISO(comment.createdAt).setZone(profile?.timezone ?? DEFAULT_TIMEZONE).setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED)}{comment.updatedAt !== comment.createdAt ? ' · 已编辑' : ''}</span>
+        <Markdown empty="评论为空">{comment.bodyMd}</Markdown>
         <div className="task-actions">
           <button className="link-button" onClick={() => void editComment(comment)}>编辑评论</button>
           <button className="link-button" onClick={() => void removeComment(comment.id)}>删除评论</button>
@@ -347,8 +360,8 @@ export function Comments({ repository, task }: { repository: TaskRepository; tas
       </article>
     ))}
     <form className="comment-form" onSubmit={submit}>
-      <textarea aria-label="添加评论" required value={body} onChange={(event) => setBody(event.target.value)} />
-      <button className="button">评论</button>
+      <textarea aria-label="添加评论" required maxLength={5000} value={body} onChange={(event) => setBody(event.target.value)} />
+      <button className="button" disabled={submitting}>{submitting ? '提交中…' : '评论'}</button>
     </form>
   </div>
 }
@@ -462,8 +475,10 @@ export function Reminders({ repository, task }: { repository: TaskRepository; ta
     <div className="reminder-list">{reminders.length === 0 ? <p className="muted">尚无提醒。</p> : reminders.map((reminder) => <article key={reminder.id} className="reminder-item">
       <div><strong>{recipientNames.get(reminder.recipientUserId) ?? '工作区成员'}</strong>
         <span>{DateTime.fromISO(reminder.remindAt).setZone(timezone).toLocaleString(DateTime.DATETIME_MED)}</span>
-        <span className={`status-pill status--${reminder.status}`}>{reminder.status}</span>
-        {reminder.lastError && <small className="notice notice--error">{reminder.lastError}</small>}
+        <span className={`status-pill status--${reminder.status}`}>{REMINDER_STATUS_LABELS[reminder.status]}</span>
+        <span className="muted">创建：{DateTime.fromISO(reminder.createdAt).setZone(timezone).setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED)}</span>
+        {reminder.sentAt && <span className="muted">发送：{DateTime.fromISO(reminder.sentAt).setZone(timezone).setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED)}</span>}
+        {reminder.lastError && <small className="notice notice--error">邮件发送失败，请稍后重新安排；持续失败请联系管理员检查邮件服务。</small>}
       </div>
       <div className="task-actions">
         {['pending', 'processing', 'failed'].includes(reminder.status) && <button className="link-button" onClick={() => void cancel(reminder.id)}>取消</button>}
@@ -485,7 +500,6 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<TaskRecord | 'new' | null>(null)
-  const [selected, setSelected] = useState<TaskRecord | null>(null)
   const hasLoaded = useRef(false)
 
   const load = useCallback(async () => {
@@ -560,10 +574,10 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
           state={{ from: `${location.pathname}${location.search}`, scrollY: window.scrollY, cachedTask: task }}
           aria-label={`查看任务：${task.title}`}
         >
-          <span className={`status-pill status--${task.status}`}>{task.status.replace('_', ' ')}</span>
+          <span className={`status-pill status--${task.status}`}>{TASK_STATUS_LABELS[task.status]}</span>
           <strong>{task.title}</strong>
           <span className="muted">{formatSchedule(task, profile?.timezone ?? DEFAULT_TIMEZONE)}</span>
-          <span className="priority-text">{task.priority}</span>
+          <span className="priority-text">{TASK_PRIORITY_LABELS[task.priority]}</span>
         </Link>
         <div className="task-actions">
           {view === 'trash' ? <>
@@ -572,23 +586,13 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
           </> : <>
             {task.status !== 'done' && <button className="button" onClick={() => void mutate(() => repository.updateTask(task.id, { ...taskToDraft(task), status: 'done' }))}>完成</button>}
             <button className="button" onClick={() => setEditing(task)}>编辑</button>
-            <button className="button" onClick={() => setSelected(task)}>提醒与评论</button>
+            <Link className="button" to={`/tasks/${task.id}/activity`} state={{ from: `${location.pathname}${location.search}`, scrollY: window.scrollY, cachedTask: task }}>提醒与评论</Link>
             <button className="button" onClick={() => void mutate(() => repository.softDeleteTask(task.id))}>移到回收站</button>
           </>}
         </div>
       </article>
     ))}</div>}
     {editing && <TaskEditor task={editing === 'new' ? null : editing} labels={labels} members={members} reminderRecipients={reminderRecipients} repository={repository} workspaceId={workspace.workspaceId} onSave={save} onCancel={() => setEditing(null)} />}
-    {selected && <div className="drawer-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={`任务互动：${selected.title}`} onMouseDown={(event) => event.stopPropagation()}>
-        <div className="section-heading">
-          <h2>{selected.title}</h2>
-          <button className="button" onClick={() => setSelected(null)}>关闭</button>
-        </div>
-        <Reminders repository={repository} task={selected} />
-        <Comments repository={repository} task={selected} />
-      </aside>
-    </div>}
   </section>
 }
 

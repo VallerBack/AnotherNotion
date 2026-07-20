@@ -31,6 +31,18 @@ const deliverySql = await readFile(
   new URL('20260720000500_email_verification_and_delivery_queue.sql', migrationsUrl),
   'utf8',
 )
+const atomicReminderEditorSql = await readFile(
+  new URL('20260720000600_atomic_task_reminder_editor.sql', migrationsUrl),
+  'utf8',
+)
+const reminderDeletionFixSql = await readFile(
+  new URL('20260720000700_fix_permanent_task_deletion_reminders.sql', migrationsUrl),
+  'utf8',
+)
+const defaultTimezoneSql = await readFile(
+  new URL('20260720000800_default_profile_timezone.sql', migrationsUrl),
+  'utf8',
+)
 const businessTables = [
   'profiles',
   'workspaces',
@@ -195,6 +207,13 @@ test('task schedule columns store UTC-capable timestamps', () => {
   assert.match(settingsRealtimeSql, /at time zone 'UTC'/i)
 })
 
+test('new profiles default to Asia/Shanghai without rewriting existing profiles', () => {
+  assert.match(defaultTimezoneSql, /alter column timezone set default 'Asia\/Shanghai'/i)
+  assert.match(defaultTimezoneSql, /values \(new\.id, v_display_name, 'Asia\/Shanghai'\)/i)
+  assert.doesNotMatch(defaultTimezoneSql, /update public\.profiles/i)
+  assert.match(defaultTimezoneSql, /security definer[\s\S]*?set search_path = pg_catalog/i)
+})
+
 test('task reminders are unique, UTC-capable, member-managed, and never granted to anon', () => {
   assert.match(remindersSql, /create table public\.task_reminders/i)
   assert.match(remindersSql, /remind_at timestamptz not null/i)
@@ -214,6 +233,47 @@ test('task deletion cancels undelivered reminders and preserves delivery history
   assert.match(remindersSql, /references public\.tasks \(id\) on delete set null/i)
   assert.match(remindersSql, /tasks_cancel_reminders_on_delete[\s\S]*?before delete or update of deleted_at/i)
   assert.match(remindersSql, /status = 'cancelled'[\s\S]*?status in \('pending', 'processing', 'failed'\)/i)
+})
+
+test('permanent deletion accepts an old trashed task without reminders', () => {
+  assert.match(reminderDeletionFixSql, /where t\.id = p_task_id[\s\S]*?t\.deleted_at is not null/i)
+  assert.match(reminderDeletionFixSql, /delete from public\.tasks where id = p_task_id/i)
+})
+
+test('permanent deletion cancels pending reminders before detaching their history', () => {
+  assert.match(remindersSql, /if tg_op = 'DELETE'[\s\S]*?status = 'cancelled'[\s\S]*?status in \('pending', 'processing', 'failed'\)/i)
+  assert.match(remindersSql, /before delete or update of deleted_at on public\.tasks/i)
+  assert.match(remindersSql, /references public\.tasks \(id\) on delete set null/i)
+})
+
+test('cancelled reminder history does not block permanent deletion', () => {
+  assert.match(reminderDeletionFixSql, /v_task_association_changed and new\.task_id is not null/i)
+  assert.match(reminderDeletionFixSql, /if tg_op = 'INSERT' and new\.task_id is null then[\s\S]*?A new reminder requires a task/i)
+  assert.doesNotMatch(reminderDeletionFixSql, /if tg_op = 'UPDATE' and new\.task_id is null then/i)
+})
+
+test('sent reminder history does not block permanent deletion', () => {
+  assert.match(remindersSql, /status in \('pending', 'processing', 'failed'\)/i)
+  assert.doesNotMatch(remindersSql, /status in \([^)]*'sent'/i)
+  assert.match(reminderDeletionFixSql, /task_id = NULL update during permanent deletion is historical detachment/i)
+})
+
+test('soft deletion cancels pending reminders even after the task becomes trashed', () => {
+  assert.match(remindersSql, /old\.deleted_at is null and new\.deleted_at is not null[\s\S]*?status = 'cancelled'/i)
+  assert.match(reminderDeletionFixSql, /v_task_association_changed := tg_op = 'INSERT' or/i)
+})
+
+test('deleting one task only changes reminders associated with that task', () => {
+  assert.match(remindersSql, /where task_id = old\.id and status in \('pending', 'processing', 'failed'\)/i)
+  assert.match(remindersSql, /task_id uuid references public\.tasks \(id\) on delete set null/i)
+})
+
+test('ordinary workspace members can permanently delete in one guarded transaction', () => {
+  assert.match(reminderDeletionFixSql, /private\.is_workspace_member\(t\.workspace_id\)/i)
+  assert.doesNotMatch(reminderDeletionFixSql, /\brole\b|owner|admin/i)
+  assert.match(reminderDeletionFixSql, /for update/i)
+  assert.match(reminderDeletionFixSql, /grant execute on function public\.permanently_delete_task\(uuid\) to authenticated/i)
+  assert.doesNotMatch(reminderDeletionFixSql, /disable row level security|\bto anon\b/i)
 })
 
 test('notification email is readable only through the current-user preferences function', () => {
@@ -254,10 +314,30 @@ test('edge functions implement auth boundaries, CORS, hashing, Brevo, and dry-ru
   assert.match(verifyFunction, /sha256\(token\)/)
   assert.match(sendFunction, /x-cron-secret/)
   assert.match(sendFunction, /claim_due_task_reminders/)
+  assert.match(sendFunction, /recipient_timezone \|\| 'Asia\/Shanghai'/)
+  assert.match(deliverySql, /coalesce\(r\.next_attempt_at, r\.remind_at\) <= statement_timestamp\(\)/i)
   assert.match(provider, /https:\/\/api\.brevo\.com\/v3\/smtp\/email/)
   assert.match(provider, /EMAIL_DRY_RUN/)
   assert.match(provider, /Idempotency-Key/)
+  assert.ok(provider.indexOf("if (dryRun)") < provider.indexOf("fetch('https://api.brevo.com"))
+  assert.match(sendFunction, /if \(result\.dryRun\) \{[\s\S]*?release_dry_run_task_reminder[\s\S]*?\} else \{[\s\S]*?mark_task_reminder_sent/)
   assert.match(config, /\[functions\.request-email-verification\][\s\S]*?verify_jwt = true/)
   assert.match(config, /\[functions\.verify-notification-email\][\s\S]*?verify_jwt = false/)
   assert.match(config, /\[functions\.send-reminders\][\s\S]*?verify_jwt = false/)
+})
+
+test('task editor uses privacy-safe recipients and atomic task/reminder RPCs', () => {
+  assert.match(atomicReminderEditorSql, /returns table \(user_id uuid, display_name text, can_receive_email boolean\)/i)
+  assert.doesNotMatch(atomicReminderEditorSql, /returns table \([^)]*notification_email/i)
+  assert.match(atomicReminderEditorSql, /create function public\.create_task_with_reminders/i)
+  assert.match(atomicReminderEditorSql, /create function public\.update_task_with_reminders/i)
+  assert.match(atomicReminderEditorSql, /status = 'cancelled'[\s\S]*?status in \('pending', 'processing', 'failed'\)/i)
+  assert.match(atomicReminderEditorSql, /old\.status <> 'done' and new\.status = 'done'/i)
+  assert.match(atomicReminderEditorSql, /p_remind_at > p_anchor/i)
+})
+
+test('reminder verification script is read-only', async () => {
+  const verification = await readFile(new URL('../scripts/verify_reminders.sql', import.meta.url), 'utf8')
+  assert.match(verification, /^\s*select\b/i)
+  assert.doesNotMatch(verification, /\b(insert|update|delete|drop|truncate|alter|create)\b/i)
 })

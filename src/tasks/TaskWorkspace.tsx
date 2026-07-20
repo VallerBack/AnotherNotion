@@ -1,10 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DateTime } from 'luxon'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
+import { DEFAULT_TIMEZONE, timezoneLabel, utcToZonedInput, zonedInputToUtc } from '../lib/datetime'
 import type {
   TaskComment,
   TaskReminder,
+  TaskReminderDraft,
+  ReminderRecipient,
   TaskDraft,
   TaskRecord,
   TaskRepository,
@@ -33,15 +37,6 @@ const viewTitles: Record<TaskView, string> = {
   all: 'All Tasks',
   mine: 'My Tasks',
   trash: 'Trash',
-}
-
-function toLocalDateTime(value: string | null, timezone: string) {
-  if (!value) return ''
-  return DateTime.fromISO(value).setZone(timezone).toFormat("yyyy-MM-dd'T'HH:mm")
-}
-
-function fromLocalDateTime(value: string, timezone: string) {
-  return value ? DateTime.fromFormat(value, "yyyy-MM-dd'T'HH:mm", { zone: timezone }).toUTC().toISO() : null
 }
 
 export function taskToDraft(task: TaskRecord): TaskDraft {
@@ -78,6 +73,9 @@ export function TaskEditor({
   initialDraft,
   labels,
   members,
+  reminderRecipients,
+  repository,
+  workspaceId,
   onSave,
   onCancel,
 }: {
@@ -85,23 +83,72 @@ export function TaskEditor({
   initialDraft?: TaskDraft
   labels: WorkspaceLabel[]
   members: WorkspaceMember[]
-  onSave(draft: TaskDraft): Promise<void>
+  reminderRecipients: ReminderRecipient[]
+  repository: TaskRepository
+  workspaceId: string
+  onSave(draft: TaskDraft, reminder: TaskReminderDraft): Promise<void>
   onCancel(): void
 }) {
-  const { profile } = useAuth()
-  const timezone = profile?.timezone ?? 'UTC'
+  const { profile, session } = useAuth()
+  const timezone = profile?.timezone ?? DEFAULT_TIMEZONE
   const [draft, setDraft] = useState<TaskDraft>(() =>
     task ? taskToDraft(task) : initialDraft ?? emptyDraft,
   )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [reminderEnabled, setReminderEnabled] = useState(false)
+  const [reminderOption, setReminderOption] = useState('start')
+  const [customReminderAt, setCustomReminderAt] = useState('')
+  const [recipientIds, setRecipientIds] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!task) return
+    let active = true
+    void repository.listTaskReminders(workspaceId, task.id).then((reminders) => {
+      const pending = reminders.filter((reminder) => ['pending', 'failed'].includes(reminder.status))
+      if (!active || pending.length === 0) return
+      setReminderEnabled(true)
+      setReminderOption('custom')
+      setCustomReminderAt(utcToZonedInput(pending[0].remindAt, timezone))
+      setRecipientIds([...new Set(pending.map((reminder) => reminder.recipientUserId))])
+    }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '加载提醒失败') })
+    return () => { active = false }
+  }, [repository, task, timezone, workspaceId])
+
+  useEffect(() => {
+    if (recipientIds.length > 0) return
+    const preferred = draft.assigneeId ?? session?.user.id
+    if (preferred && reminderRecipients.find((recipient) => recipient.userId === preferred)?.canReceiveEmail) {
+      setRecipientIds([preferred])
+    }
+  }, [draft.assigneeId, recipientIds.length, reminderRecipients, session?.user.id])
+
+  function reminderAnchor() {
+    if (draft.scheduleKind === 'timed') return draft.startAt ?? draft.dueAt
+    const date = draft.startDate ?? draft.dueDate
+    return date ? DateTime.fromISO(date, { zone: timezone }).startOf('day').toUTC().toISO() : null
+  }
+
+  function buildReminder(): TaskReminderDraft {
+    if (!reminderEnabled) return { enabled: false, recipientUserIds: [], remindAt: null }
+    const anchorValue = reminderAnchor()
+    if (!anchorValue) throw new Error('请先设置任务开始或截止时间。')
+    if (recipientIds.length === 0) throw new Error('请选择至少一位邮箱已就绪的收件人。')
+    const offsets: Record<string, number> = { start: 0, ten_minutes: 10, one_hour: 60, one_day: 1440 }
+    const remindAt = reminderOption === 'custom'
+      ? zonedInputToUtc(customReminderAt, timezone)
+      : DateTime.fromISO(anchorValue).minus({ minutes: offsets[reminderOption] }).toUTC().toISO()
+    if (!remindAt) throw new Error('请选择有效的提醒时间。')
+    if (DateTime.fromISO(remindAt) > DateTime.fromISO(anchorValue)) throw new Error('提醒时间不能晚于任务时间。')
+    return { enabled: true, recipientUserIds: recipientIds, remindAt }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setSaving(true)
     setError(null)
     try {
-      await onSave(draft)
+      await onSave(draft, buildReminder())
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '保存任务失败')
     } finally {
@@ -157,14 +204,18 @@ export function TaskEditor({
           <label>日期类型
             <select
               value={draft.scheduleKind}
-              onChange={(event) => setDraft({
-                ...draft,
-                scheduleKind: event.target.value as TaskDraft['scheduleKind'],
-                startDate: null,
-                startAt: null,
-                dueDate: null,
-                dueAt: null,
-              })}
+              onChange={(event) => {
+                const scheduleKind = event.target.value as TaskDraft['scheduleKind']
+                setDraft({
+                  ...draft,
+                  scheduleKind,
+                  startDate: null,
+                  startAt: null,
+                  dueDate: null,
+                  dueAt: null,
+                })
+                if (scheduleKind === 'none') setReminderEnabled(false)
+              }}
             >
               <option value="none">无日期</option>
               <option value="all_day">全天任务</option>
@@ -181,12 +232,39 @@ export function TaskEditor({
           </>}
           {draft.scheduleKind === 'timed' && <>
             <label>开始时间
-              <input type="datetime-local" value={toLocalDateTime(draft.startAt, timezone)} onChange={(event) => setDraft({ ...draft, startAt: fromLocalDateTime(event.target.value, timezone) })} />
+              <input type="datetime-local" value={utcToZonedInput(draft.startAt, timezone)} onChange={(event) => setDraft({ ...draft, startAt: zonedInputToUtc(event.target.value, timezone) })} />
             </label>
             <label>截止时间
-              <input type="datetime-local" value={toLocalDateTime(draft.dueAt, timezone)} onChange={(event) => setDraft({ ...draft, dueAt: fromLocalDateTime(event.target.value, timezone) })} />
+              <input type="datetime-local" value={utcToZonedInput(draft.dueAt, timezone)} onChange={(event) => setDraft({ ...draft, dueAt: zonedInputToUtc(event.target.value, timezone) })} />
             </label>
           </>}
+          <fieldset className="field--wide reminder-editor">
+            <legend>邮件提醒</legend>
+            <label className="checkbox-row">
+              <input type="checkbox" aria-label="启用邮件提醒" checked={reminderEnabled} disabled={draft.scheduleKind === 'none'} onChange={(event) => setReminderEnabled(event.target.checked)} />
+              启用邮件提醒
+            </label>
+            {draft.scheduleKind === 'none' && <span className="muted">无日期任务不能启用提醒。</span>}
+            {reminderEnabled && <>
+              <label>提醒时间（{timezoneLabel(timezone)}）
+                <select value={reminderOption} onChange={(event) => setReminderOption(event.target.value)}>
+                  <option value="start">任务开始时</option><option value="ten_minutes">提前10分钟</option>
+                  <option value="one_hour">提前1小时</option><option value="one_day">提前1天</option>
+                  <option value="custom">自定义日期时间</option>
+                </select>
+              </label>
+              {reminderOption === 'custom' && <label>自定义提醒时间
+                <input type="datetime-local" value={customReminderAt} onChange={(event) => setCustomReminderAt(event.target.value)} />
+              </label>}
+              <div className="reminder-recipient-picker"><strong>收件人</strong>
+                {reminderRecipients.map((recipient) => <label key={recipient.userId} className="checkbox-row">
+                  <input type="checkbox" disabled={!recipient.canReceiveEmail} checked={recipientIds.includes(recipient.userId)} onChange={() => setRecipientIds((current) => current.includes(recipient.userId) ? current.filter((id) => id !== recipient.userId) : [...current, recipient.userId])} />
+                  {recipient.displayName} <span className="muted">{recipient.canReceiveEmail ? '可以接收提醒' : '邮箱未就绪'}</span>
+                </label>)}
+                {!reminderRecipients.find((recipient) => recipient.userId === session?.user.id)?.canReceiveEmail && <Link to="/settings">当前邮箱未就绪，前往账号设置</Link>}
+              </div>
+            </>}
+          </fieldset>
           <fieldset className="field--wide label-picker">
             <legend>标签</legend>
             {labels.length === 0 ? <span className="muted">尚无标签</span> : labels.map((label) => (
@@ -277,9 +355,9 @@ function Comments({ repository, task }: { repository: TaskRepository; task: Task
 
 function Reminders({ repository, task }: { repository: TaskRepository; task: TaskRecord }) {
   const { profile } = useAuth()
-  const timezone = profile?.timezone ?? 'UTC'
+  const timezone = profile?.timezone ?? DEFAULT_TIMEZONE
   const [reminders, setReminders] = useState<TaskReminder[]>([])
-  const [recipients, setRecipients] = useState<WorkspaceMember[]>([])
+  const [recipients, setRecipients] = useState<ReminderRecipient[]>([])
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([])
   const [remindAt, setRemindAt] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -330,7 +408,7 @@ function Reminders({ repository, task }: { repository: TaskRepository; task: Tas
 
   async function create(event: FormEvent) {
     event.preventDefault()
-    const utc = fromLocalDateTime(remindAt, timezone)
+    const utc = zonedInputToUtc(remindAt, timezone)
     if (!utc || selectedRecipients.length === 0) {
       setError('请选择提醒时间和至少一位可接收邮件的成员。')
       return
@@ -351,10 +429,10 @@ function Reminders({ repository, task }: { repository: TaskRepository; task: Tas
   }
 
   async function reschedule(reminder: TaskReminder) {
-    const initial = toLocalDateTime(reminder.remindAt, timezone)
+    const initial = utcToZonedInput(reminder.remindAt, timezone)
     const next = window.prompt(`重新安排提醒时间（${timezone}）`, initial)
     if (!next) return
-    const utc = fromLocalDateTime(next, timezone)
+    const utc = zonedInputToUtc(next, timezone)
     if (!utc) return
     try { await repository.rescheduleTaskReminder(reminder.id, utc); await load() }
     catch (reason) { setError(reason instanceof Error ? reason.message : '重新安排提醒失败') }
@@ -365,7 +443,7 @@ function Reminders({ repository, task }: { repository: TaskRepository; task: Tas
     <h3>邮件提醒</h3>
     {error && <div className="notice notice--error" role="alert">{error}</div>}
     <form className="reminder-form" onSubmit={create}>
-      <label>提醒时间（{timezone}）
+      <label>提醒时间（{timezoneLabel(timezone)}）
         <input type="datetime-local" value={remindAt} onChange={(event) => setRemindAt(event.target.value)} />
       </label>
       <div className="quick-reminders" aria-label="快捷提醒">
@@ -374,9 +452,9 @@ function Reminders({ repository, task }: { repository: TaskRepository; task: Tas
         <button type="button" className="button" onClick={() => quickOffset(1440)}>提前1天</button>
       </div>
       <fieldset><legend>收件人</legend>
-        {recipients.length === 0 ? <p className="muted">没有已验证通知邮箱且启用提醒的成员。</p> : recipients.map((recipient) => <label key={recipient.userId} className="checkbox-row">
-          <input type="checkbox" checked={selectedRecipients.includes(recipient.userId)} onChange={() => toggleRecipient(recipient.userId)} />
-          {recipient.displayName}
+        {recipients.length === 0 ? <p className="muted">工作区暂无成员。</p> : recipients.map((recipient) => <label key={recipient.userId} className="checkbox-row">
+          <input type="checkbox" disabled={!recipient.canReceiveEmail} checked={selectedRecipients.includes(recipient.userId)} onChange={() => toggleRecipient(recipient.userId)} />
+          {recipient.displayName} <span className="muted">{recipient.canReceiveEmail ? '可以接收提醒' : '邮箱未就绪'}</span>
         </label>)}
       </fieldset>
       <button className="button button--primary">创建提醒</button>
@@ -401,6 +479,7 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [reminderRecipients, setReminderRecipients] = useState<ReminderRecipient[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<TaskRecord | 'new' | null>(null)
@@ -410,14 +489,16 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
     if (!session) return
     setLoading(true)
     try {
-      const [nextTasks, nextLabels, nextMembers] = await Promise.all([
-        repository.listTasks(workspace.workspaceId, session.user.id, view, profile?.timezone ?? 'UTC'),
+      const [nextTasks, nextLabels, nextMembers, nextReminderRecipients] = await Promise.all([
+        repository.listTasks(workspace.workspaceId, session.user.id, view, profile?.timezone ?? DEFAULT_TIMEZONE),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
+        repository.listEligibleReminderRecipients(workspace.workspaceId),
       ])
       setTasks(nextTasks)
       setLabels(nextLabels)
       setMembers(nextMembers)
+      setReminderRecipients(nextReminderRecipients)
       setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '加载任务失败')
@@ -429,14 +510,14 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   useEffect(() => { void load() }, [load])
   useEffect(() => repository.subscribeWorkspace?.(workspace.workspaceId, () => { void load() }), [load, repository, workspace.workspaceId])
 
-  async function save(draft: TaskDraft) {
+  async function save(draft: TaskDraft, reminder: TaskReminderDraft) {
     if (!session) return
-    if (editing === 'new') await repository.createTask(workspace.workspaceId, session.user.id, draft)
+    if (editing === 'new') await repository.createTask(workspace.workspaceId, session.user.id, draft, reminder)
     else if (editing) {
       const scheduleChanged = editing.scheduleKind !== draft.scheduleKind
         || editing.startDate !== draft.startDate || editing.startAt !== draft.startAt
         || editing.dueDate !== draft.dueDate || editing.dueAt !== draft.dueAt
-      await repository.updateTask(editing.id, draft)
+      await repository.updateTask(editing.id, draft, reminder)
       if (scheduleChanged) {
         const reminders = await repository.listTaskReminders(editing.workspaceId, editing.id)
         if (reminders.some((reminder) => ['pending', 'failed'].includes(reminder.status))) {
@@ -473,12 +554,12 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
         <button className="task-main" onClick={() => setSelected(task)}>
           <span className={`status-pill status--${task.status}`}>{task.status.replace('_', ' ')}</span>
           <strong>{task.title}</strong>
-          <span className="muted">{formatSchedule(task, profile?.timezone ?? 'UTC')}</span>
+          <span className="muted">{formatSchedule(task, profile?.timezone ?? DEFAULT_TIMEZONE)}</span>
           <span className="priority-text">{task.priority}</span>
         </button>
         <div className="task-actions">
           {view === 'trash' ? <>
-            <button className="button" onClick={() => void mutate(() => repository.restoreTask(task.id))}>恢复</button>
+            <button className="button" onClick={() => void mutate(async () => { await repository.restoreTask(task.id); window.alert('任务已恢复，已取消的提醒不会自动恢复，请重新设置。') })}>恢复</button>
             <button className="button button--danger" onClick={() => void mutate(() => repository.permanentlyDeleteTask(task.id))}>永久删除</button>
           </> : <>
             {task.status !== 'done' && <button className="button" onClick={() => void mutate(() => repository.updateTask(task.id, { ...taskToDraft(task), status: 'done' }))}>完成</button>}
@@ -488,7 +569,7 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
         </div>
       </article>
     ))}</div>}
-    {editing && <TaskEditor task={editing === 'new' ? null : editing} labels={labels} members={members} onSave={save} onCancel={() => setEditing(null)} />}
+    {editing && <TaskEditor task={editing === 'new' ? null : editing} labels={labels} members={members} reminderRecipients={reminderRecipients} repository={repository} workspaceId={workspace.workspaceId} onSave={save} onCancel={() => setEditing(null)} />}
     {selected && view !== 'trash' && <aside className="detail-drawer">
       <button className="icon-button" aria-label="关闭详情" onClick={() => setSelected(null)}>×</button>
       <h2>{selected.title}</h2>

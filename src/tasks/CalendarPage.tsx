@@ -8,11 +8,14 @@ import type { EventClickArg, EventDropArg, EventInput } from '@fullcalendar/core
 import { DateTime } from 'luxon'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth/auth-context'
+import { DEFAULT_TIMEZONE } from '../lib/datetime'
 import { TaskEditor, emptyDraft, taskToDraft } from './TaskWorkspace'
 import type {
   TaskDraft,
   TaskRecord,
   TaskRepository,
+  TaskReminderDraft,
+  ReminderRecipient,
   WorkspaceLabel,
   WorkspaceMember,
 } from './task-repository'
@@ -133,6 +136,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
+  const [reminderRecipients, setReminderRecipients] = useState<ReminderRecipient[]>([])
   const [status, setStatus] = useState('all')
   const [assignee, setAssignee] = useState('all')
   const [label, setLabel] = useState('all')
@@ -148,14 +152,16 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
     if (!session) return
     setLoading(true)
     try {
-      const [nextTasks, nextLabels, nextMembers] = await Promise.all([
-        repository.listTasks(workspace.workspaceId, session.user.id, 'calendar', profile?.timezone ?? 'UTC'),
+      const [nextTasks, nextLabels, nextMembers, nextReminderRecipients] = await Promise.all([
+        repository.listTasks(workspace.workspaceId, session.user.id, 'calendar', profile?.timezone ?? DEFAULT_TIMEZONE),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
+        repository.listEligibleReminderRecipients(workspace.workspaceId),
       ])
       setTasks(nextTasks)
       setLabels(nextLabels)
       setMembers(nextMembers)
+      setReminderRecipients(nextReminderRecipients)
       setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '加载日历失败')
@@ -233,10 +239,10 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
     }
   }
 
-  async function save(draft: TaskDraft) {
+  async function save(draft: TaskDraft, reminder: TaskReminderDraft) {
     if (!session || !editor) return
-    if (editor.task) await repository.updateTask(editor.task.id, draft)
-    else await repository.createTask(workspace.workspaceId, session.user.id, draft)
+    if (editor.task) await repository.updateTask(editor.task.id, draft, reminder)
+    else await repository.createTask(workspace.workspaceId, session.user.id, draft, reminder)
     setEditor(null)
     await load()
   }
@@ -264,7 +270,7 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
           initialView="dayGridMonth"
           headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' }}
           buttonText={{ today: '今天', month: '月', week: '周' }}
-          timeZone={profile?.timezone ?? 'local'}
+          timeZone={profile?.timezone ?? DEFAULT_TIMEZONE}
           events={events}
           editable
           eventStartEditable
@@ -283,6 +289,9 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
           initialDraft={editor.draft}
           labels={labels}
           members={members}
+          reminderRecipients={reminderRecipients}
+          repository={repository}
+          workspaceId={workspace.workspaceId}
           onSave={save}
           onCancel={() => setEditor(null)}
         />

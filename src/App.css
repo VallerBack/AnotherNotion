@@ -655,3 +655,14 @@ code {
 .status--failed { background: #fde4e4; }
 .status--cancelled { background: #ececec; }
 .status--processing { background: #fff0c7; }
+.reminder-editor,
+.reminder-recipient-picker {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.reminder-editor {
+  padding: 1rem;
+  border: 1px solid var(--border, #dedbd4);
+  border-radius: 0.75rem;
+}

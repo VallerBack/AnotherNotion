@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DateTime } from 'luxon'
+import { DEFAULT_TIMEZONE } from '../lib/datetime'
 import type {
   Database,
   TaskPriority,
@@ -45,7 +46,8 @@ export type TaskComment = {
   bodyMd: string
   createdAt: string
 }
-export type ReminderRecipient = { userId: string; displayName: string }
+export type ReminderRecipient = { userId: string; displayName: string; canReceiveEmail: boolean }
+export type TaskReminderDraft = { enabled: boolean; recipientUserIds: string[]; remindAt: string | null }
 export type TaskReminder = {
   id: string
   taskId: string | null
@@ -59,8 +61,8 @@ export type TaskReminder = {
 
 export interface TaskRepository {
   listTasks(workspaceId: string, userId: string, view: TaskView, timezone?: string): Promise<TaskRecord[]>
-  createTask(workspaceId: string, userId: string, draft: TaskDraft): Promise<TaskRecord>
-  updateTask(taskId: string, draft: TaskDraft): Promise<void>
+  createTask(workspaceId: string, userId: string, draft: TaskDraft, reminder?: TaskReminderDraft): Promise<TaskRecord>
+  updateTask(taskId: string, draft: TaskDraft, reminder?: TaskReminderDraft): Promise<void>
   softDeleteTask(taskId: string): Promise<void>
   restoreTask(taskId: string): Promise<void>
   permanentlyDeleteTask(taskId: string): Promise<void>
@@ -151,7 +153,7 @@ function toTaskWrite(draft: TaskDraft) {
 export class SupabaseTaskRepository implements TaskRepository {
   constructor(private readonly client: SupabaseClient<Database>) {}
 
-  async listTasks(workspaceId: string, userId: string, view: TaskView, timezone = Intl.DateTimeFormat().resolvedOptions().timeZone) {
+  async listTasks(workspaceId: string, userId: string, view: TaskView, timezone = DEFAULT_TIMEZONE) {
     let rows: TaskRow[]
     if (view === 'trash') {
       const response = await this.client.rpc('list_deleted_tasks', {
@@ -189,18 +191,28 @@ export class SupabaseTaskRepository implements TaskRepository {
     return tasks
   }
 
-  async createTask(workspaceId: string, userId: string, draft: TaskDraft) {
-    const response = await this.client
-      .from('tasks')
-      .insert({ ...toTaskWrite(draft), workspace_id: workspaceId, created_by: userId })
-      .select('*')
-      .single()
-    const task = ensure(response.data, response.error)
-    await this.replaceLabels(workspaceId, task.id, draft.labelIds)
-    return mapTask(task, draft.labelIds)
+  async createTask(workspaceId: string, userId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {
+    void userId
+    const response = await this.client.rpc('create_task_with_reminders', {
+      p_workspace_id: workspaceId, p_task: toTaskWrite(draft), p_label_ids: draft.labelIds,
+      p_recipient_user_ids: reminder?.enabled ? reminder.recipientUserIds : [],
+      p_remind_at: reminder?.enabled ? reminder.remindAt : null,
+    })
+    const taskId = ensure(response.data, response.error)
+    const taskResponse = await this.client.from('tasks').select('*').eq('id', taskId).single()
+    return mapTask(ensure(taskResponse.data, taskResponse.error), draft.labelIds)
   }
 
-  async updateTask(taskId: string, draft: TaskDraft) {
+  async updateTask(taskId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {
+    if (reminder) {
+      const { error } = await this.client.rpc('update_task_with_reminders', {
+        p_task_id: taskId, p_task: toTaskWrite(draft), p_label_ids: draft.labelIds,
+        p_recipient_user_ids: reminder.enabled ? reminder.recipientUserIds : [],
+        p_remind_at: reminder.enabled ? reminder.remindAt : null,
+      })
+      if (error) throw toDataError(error)
+      return
+    }
     const { error } = await this.client
       .from('tasks')
       .update(toTaskWrite(draft))
@@ -334,12 +346,13 @@ export class SupabaseTaskRepository implements TaskRepository {
   }
 
   async listEligibleReminderRecipients(workspaceId: string) {
-    const response = await this.client.rpc('list_eligible_reminder_recipients', {
+    const response = await this.client.rpc('list_reminder_recipient_capabilities', {
       p_workspace_id: workspaceId,
     })
     return ensure(response.data, response.error).map((recipient) => ({
       userId: recipient.user_id,
       displayName: recipient.display_name,
+      canReceiveEmail: recipient.can_receive_email,
     }))
   }
 

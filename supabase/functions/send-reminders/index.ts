@@ -26,7 +26,7 @@ Deno.serve(async (request) => {
 
   for (const reminder of reminders) {
     try {
-      const zone = reminder.recipient_timezone || 'UTC'
+      const zone = reminder.recipient_timezone || 'Asia/Shanghai'
       const format = (value: string | null) => value
         ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: zone }).format(new Date(value))
         : '未设置'

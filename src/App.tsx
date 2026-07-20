@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/auth-context'
 import { getAuthErrorMessage } from './auth/auth-errors'
+import { DEFAULT_TIMEZONE, timezoneLabel } from './lib/datetime'
 import { SupabaseAuthGateway, type AuthGateway } from './auth/auth-gateway'
 import { LabelsPage, TaskBoard } from './tasks/TaskWorkspace'
 import { CalendarPage } from './tasks/CalendarPage'
@@ -263,7 +264,7 @@ function PasswordPage({ forced = false }: { forced?: boolean }) {
 function SettingsPage() {
   const { profile, updateProfile, gateway } = useAuth()
   const [displayName, setDisplayName] = useState(profile?.displayName ?? '')
-  const [timezone, setTimezone] = useState(profile?.timezone ?? 'UTC')
+  const [timezone, setTimezone] = useState(profile?.timezone ?? DEFAULT_TIMEZONE)
   const [notificationEmail, setNotificationEmail] = useState(profile?.notificationEmail ?? '')
   const [notificationsEnabled, setNotificationsEnabled] = useState(profile?.emailNotificationsEnabled ?? false)
   const [message, setMessage] = useState<string | null>(null)
@@ -320,7 +321,7 @@ function SettingsPage() {
         <label>显示名<input required maxLength={80} value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
         <label>IANA 时区
           <select value={timezone} onChange={(event) => setTimezone(event.target.value)}>
-            {timezoneOptions.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
+            {timezoneOptions.map((zone) => <option key={zone} value={zone}>{timezoneLabel(zone)}</option>)}
           </select>
         </label>
         <label>通知邮箱<input type="email" maxLength={320} value={notificationEmail} onChange={(event) => { setNotificationEmail(event.target.value); if (!event.target.value) setNotificationsEnabled(false) }} /></label>

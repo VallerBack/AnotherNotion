@@ -153,6 +153,9 @@ export interface Database {
       create_task_reminders: { Args: { p_task_id: string; p_recipient_user_ids: string[]; p_remind_at: string }; Returns: undefined }
       cancel_task_reminder: { Args: { p_reminder_id: string }; Returns: undefined }
       reschedule_task_reminder: { Args: { p_reminder_id: string; p_remind_at: string }; Returns: undefined }
+      list_reminder_recipient_capabilities: { Args: { p_workspace_id: string }; Returns: { user_id: string; display_name: string; can_receive_email: boolean }[] }
+      create_task_with_reminders: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: string }
+      update_task_with_reminders: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: undefined }
     }
     Enums: {
       workspace_role: WorkspaceRole

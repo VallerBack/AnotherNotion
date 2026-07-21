@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   HashRouter,
   Link,
@@ -350,28 +350,34 @@ function SettingsPage() {
 }
 
 function VerifyNotificationEmailPage() {
-  const { gateway, retry } = useAuth()
+  const { gateway, refreshProfileInBackground } = useAuth()
   const location = useLocation()
   const token = new URLSearchParams(location.search).get('token')
-  const [state, setState] = useState<'verifying' | 'success' | 'error'>(token ? 'verifying' : 'error')
-  const [message, setMessage] = useState(token ? '正在验证通知邮箱…' : '验证链接缺少 token。')
+  const [state, setState] = useState<'ready' | 'verifying' | 'success' | 'error'>(token ? 'ready' : 'error')
+  const [message, setMessage] = useState(token ? '点击下方按钮确认验证此通知邮箱。' : '验证链接不完整。')
+  const submitted = useRef(false)
 
-  useEffect(() => {
-    if (!token) return
-    let active = true
-    void gateway.verifyNotificationEmail(token).then(async () => {
-      await retry()
-      if (active) { setState('success'); setMessage('通知邮箱验证成功。') }
-    }).catch((reason) => {
-      if (active) { setState('error'); setMessage(getAuthErrorMessage(reason, '验证通知邮箱')) }
-    })
-    return () => { active = false }
-  }, [gateway, retry, token])
+  async function verify() {
+    if (!token || submitted.current) return
+    submitted.current = true
+    setState('verifying')
+    setMessage('正在验证。')
+    try {
+      const result = await gateway.verifyNotificationEmail(token)
+      setState('success')
+      setMessage(result.alreadyVerified ? '该通知邮箱已经验证。' : '通知邮箱验证成功。')
+      void refreshProfileInBackground()
+    } catch (reason) {
+      setState('error')
+      setMessage(getAuthErrorMessage(reason, '验证通知邮箱'))
+    }
+  }
 
   return <main className="screen"><section className="card card--center">
     <p className="eyebrow">EMAIL VERIFICATION</p>
-    <h1>{state === 'success' ? '验证成功' : state === 'error' ? '验证失败' : '正在验证'}</h1>
+    <h1>{state === 'success' ? '验证成功' : state === 'error' ? '验证失败' : state === 'verifying' ? '正在验证' : '确认验证此通知邮箱'}</h1>
     <div className={`notice ${state === 'error' ? 'notice--error' : state === 'success' ? 'notice--success' : ''}`} role="status">{message}</div>
+    {state === 'ready' || state === 'verifying' ? <button type="button" className="button button--primary" disabled={state === 'verifying'} onClick={() => void verify()}>{state === 'verifying' ? '正在验证' : '确认验证此通知邮箱'}</button> : null}
     <Link className="button" to={state === 'success' ? '/settings' : '/login'}>{state === 'success' ? '返回设置' : '返回登录'}</Link>
   </section></main>
 }

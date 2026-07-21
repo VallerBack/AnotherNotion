@@ -27,6 +27,11 @@ export type NotificationEmailSendResult = {
   dryRun: boolean
 }
 
+export type NotificationEmailVerificationResult = {
+  verified: true
+  alreadyVerified: boolean
+}
+
 export type WorkspaceMembership = {
   workspaceId: string
   workspaceName: string
@@ -45,7 +50,7 @@ export interface AuthGateway {
   updatePassword(password: string): Promise<void>
   updateProfile(userId: string, preferences: ProfilePreferences): Promise<void>
   requestNotificationEmailVerification(): Promise<NotificationEmailSendResult>
-  verifyNotificationEmail(token: string): Promise<void>
+  verifyNotificationEmail(token: string): Promise<NotificationEmailVerificationResult>
   loadProfile(userId: string): Promise<UserProfile>
   loadMemberships(userId: string): Promise<WorkspaceMembership[]>
   loadTaskCount(workspaceId: string): Promise<number>
@@ -149,10 +154,13 @@ export class SupabaseAuthGateway implements AuthGateway {
   }
 
   async verifyNotificationEmail(token: string) {
-    const { error } = await this.client.functions.invoke('verify-notification-email', {
+    const { data, error } = await this.client.functions.invoke('verify-notification-email', {
       body: { token },
     })
     if (error) await throwFunctionError(error)
+    const result = data as { verified?: unknown; alreadyVerified?: unknown } | null
+    if (result?.verified !== true) throw new Error('验证服务未确认验证结果。')
+    return { verified: true as const, alreadyVerified: result.alreadyVerified === true }
   }
 
   async loadProfile(userId: string) {

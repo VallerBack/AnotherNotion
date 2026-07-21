@@ -33,6 +33,7 @@ type AuthContextValue = AuthState & {
   logout(): Promise<void>
   changePassword(password: string): Promise<void>
   updateProfile(preferences: ProfilePreferences): Promise<void>
+  refreshProfileInBackground(): Promise<void>
   retry(): Promise<void>
 }
 
@@ -120,8 +121,8 @@ export function AuthProvider({
     [gateway],
   )
 
-  const refreshProfile = useCallback((session: AuthSession) => {
-    void gateway.loadProfile(session.user.id).then((profile) => {
+  const refreshProfile = useCallback(async (session: AuthSession) => {
+    await gateway.loadProfile(session.user.id).then((profile) => {
       const current = stateRef.current
       if (current.status !== 'authenticated' || current.session?.user.id !== session.user.id) return
       setState((previous) => ({ ...previous, session, profile, error: null }))
@@ -131,6 +132,12 @@ export function AuthProvider({
       setState((previous) => ({ ...previous, error: getAuthErrorMessage(error, '刷新账户') }))
     })
   }, [gateway])
+
+  const refreshProfileInBackground = useCallback(async () => {
+    const session = stateRef.current.session
+    if (!session || stateRef.current.status !== 'authenticated') return
+    await refreshProfile(session)
+  }, [refreshProfile])
 
   const setAnonymous = useCallback((error: string | null = null) => {
     requestId.current += 1
@@ -263,8 +270,8 @@ export function AuthProvider({
   }, [gateway, hydrate, setAnonymous, state.session])
 
   const value = useMemo(
-    () => ({ ...state, gateway, login, logout, changePassword, updateProfile, retry }),
-    [state, gateway, login, logout, changePassword, updateProfile, retry],
+    () => ({ ...state, gateway, login, logout, changePassword, updateProfile, refreshProfileInBackground, retry }),
+    [state, gateway, login, logout, changePassword, updateProfile, refreshProfileInBackground, retry],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

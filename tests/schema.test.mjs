@@ -43,6 +43,14 @@ const defaultTimezoneSql = await readFile(
   new URL('20260720000800_default_profile_timezone.sql', migrationsUrl),
   'utf8',
 )
+const verificationDeliveryRateSql = await readFile(
+  new URL('20260721000100_verification_delivery_rate_limit.sql', migrationsUrl),
+  'utf8',
+)
+const idempotentVerificationSql = await readFile(
+  new URL('20260721000200_idempotent_notification_email_verification.sql', migrationsUrl),
+  'utf8',
+)
 const activityAssigneesSql = await readFile(
   new URL('20260720000900_task_activity_multi_assignees.sql', migrationsUrl), 'utf8',
 )
@@ -306,6 +314,30 @@ test('reminder worker claims atomically with bounded skip-locked retries', () =>
   assert.match(deliverySql, /attempt_count >= 5/i)
 })
 
+test('verification rate limit counts accepted deliveries instead of failed token issues', () => {
+  assert.match(verificationDeliveryRateSql, /add column delivery_accepted_at timestamptz/i)
+  assert.match(verificationDeliveryRateSql, /delivery_accepted_at > statement_timestamp\(\) - interval '1 hour'/i)
+  assert.match(verificationDeliveryRateSql, /RATE_LIMIT_MINUTE/i)
+  assert.match(verificationDeliveryRateSql, /RATE_LIMIT_HOUR/i)
+  assert.match(verificationDeliveryRateSql, /create function public\.mark_notification_email_verification_delivered/i)
+  assert.match(verificationDeliveryRateSql, /security definer[\s\S]*?set search_path = pg_catalog/i)
+  assert.match(verificationDeliveryRateSql, /grant execute on function public\.mark_notification_email_verification_delivered\(text\)[\s\S]*?to authenticated/i)
+  assert.doesNotMatch(verificationDeliveryRateSql, /grant execute[\s\S]*?mark_notification_email_verification_delivered[\s\S]*?to anon/i)
+})
+
+test('notification email verification is atomic, one-time, and safely idempotent', () => {
+  assert.match(idempotentVerificationSql, /create function public\.consume_notification_email_verification_v2/i)
+  assert.match(idempotentVerificationSql, /for update/i)
+  assert.match(idempotentVerificationSql, /v_token\.used_at is not null[\s\S]*?notification_email = v_token\.notification_email[\s\S]*?notification_email_verified_at is not null/i)
+  assert.match(idempotentVerificationSql, /invalidated_at is null/i)
+  assert.match(idempotentVerificationSql, /v_token\.expires_at <= statement_timestamp\(\)/i)
+  assert.ok(idempotentVerificationSql.indexOf('update public.profiles') < idempotentVerificationSql.indexOf('set used_at = statement_timestamp()'))
+  assert.match(idempotentVerificationSql, /raise exception[\s\S]*?Verification token disappeared/i)
+  assert.match(idempotentVerificationSql, /security definer[\s\S]*?set search_path = pg_catalog/i)
+  assert.match(idempotentVerificationSql, /grant execute[\s\S]*?consume_notification_email_verification_v2[\s\S]*?to service_role/i)
+  assert.doesNotMatch(idempotentVerificationSql, /grant execute[\s\S]*?consume_notification_email_verification_v2[\s\S]*?to (anon|authenticated)/i)
+})
+
 test('edge functions implement auth boundaries, CORS, hashing, Brevo, and dry-run safety', async () => {
   const root = new URL('../supabase/functions/', import.meta.url)
   const requestFunction = await readFile(new URL('request-email-verification/index.ts', root), 'utf8')
@@ -316,6 +348,8 @@ test('edge functions implement auth boundaries, CORS, hashing, Brevo, and dry-ru
   assert.match(requestFunction, /auth\.getUser\(\)/)
   assert.match(requestFunction, /randomToken\(32\)/)
   assert.match(verifyFunction, /sha256\(token\)/)
+  assert.match(verifyFunction, /consume_notification_email_verification_v2/)
+  assert.match(verifyFunction, /alreadyVerified/)
   assert.match(sendFunction, /x-cron-secret/)
   assert.match(sendFunction, /claim_due_task_reminders/)
   assert.match(sendFunction, /recipient_timezone \|\| 'Asia\/Shanghai'/)
@@ -326,6 +360,9 @@ test('edge functions implement auth boundaries, CORS, hashing, Brevo, and dry-ru
   assert.match(provider, /brevo_request_rejected/)
   assert.match(provider, /messageId/)
   assert.match(requestFunction, /cancel_notification_email_verification_issue/)
+  assert.match(requestFunction, /mark_notification_email_verification_delivered/)
+  assert.match(requestFunction, /RATE_LIMIT_MINUTE/)
+  assert.match(requestFunction, /RATE_LIMIT_HOUR/)
   assert.match(requestFunction, /邮件服务暂时不可用/)
   assert.match(requestFunction, /邮箱地址格式错误/)
   assert.match(requestFunction, /if \(!delivery\.messageId\)/)

@@ -30,7 +30,7 @@ class AuthMock implements AuthGateway {
   updatePassword = vi.fn(async () => undefined)
   updateProfile = vi.fn(async () => undefined)
   requestNotificationEmailVerification = vi.fn(async () => ({ sent: true, dryRun: false }))
-  verifyNotificationEmail = vi.fn(async () => undefined)
+  verifyNotificationEmail = vi.fn(async () => ({ verified: true as const, alreadyVerified: false }))
   loadProfile = vi.fn(async () => ({
     id: 'user-1', displayName: '成员', timezone: 'UTC',
     notificationEmail: null, notificationEmailVerifiedAt: null,

@@ -19,7 +19,13 @@ Deno.serve(async (request) => {
     const tokenHash = await sha256(token)
     const { data: email, error } = await supabase.rpc('issue_notification_email_verification', { p_token_hash: tokenHash })
     if (error) {
-      if (error.message.includes('RATE_LIMIT')) return json({ error: '发送过于频繁，请稍后再试。', code: 'RATE_LIMIT' }, 429)
+      if (error.message.includes('RATE_LIMIT_MINUTE')) {
+        return json({ error: '一分钟内只能发送一次，请稍后再试。', code: 'RATE_LIMIT_MINUTE', retryAfterSeconds: 60 }, 429)
+      }
+      if (error.message.includes('RATE_LIMIT_HOUR')) {
+        return json({ error: '本小时已达到发送上限，请稍后再试。', code: 'RATE_LIMIT_HOUR', retryAfterSeconds: 3600 }, 429)
+      }
+      if (error.message.includes('RATE_LIMIT')) return json({ error: '发送过于频繁，请稍后再试。', code: 'RATE_LIMIT', retryAfterSeconds: 60 }, 429)
       if (error.message.includes('not configured')) return json({ error: '请先设置通知邮箱。' }, 400)
       throw error
     }
@@ -52,6 +58,12 @@ Deno.serve(async (request) => {
         return json({ error: unavailable ? '邮件服务暂时不可用。' : '邮件服务未接受发送请求。', code: deliveryError.category }, 503)
       }
       throw deliveryError
+    }
+    const deliveryMarker = await supabase.rpc('mark_notification_email_verification_delivered', { p_token_hash: tokenHash })
+    if (deliveryMarker.error) {
+      // Brevo has already accepted the message. Do not report a false failure
+      // that would encourage the user to send a duplicate email.
+      console.error(JSON.stringify({ event: 'verification_delivery_marker_failed', category: 'database_marker' }))
     }
     console.info(JSON.stringify({ event: 'verification_email_accepted', status: 202, category: 'accepted' }))
     return json({ sent: true, dryRun: false, status: 202, category: 'accepted' }, 202)

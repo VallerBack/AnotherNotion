@@ -38,4 +38,13 @@ describe('通知邮箱函数响应协议', () => {
       await expect(gatewayWith({ data: null, error }).gateway.requestNotificationEmailVerification()).rejects.toThrow(message)
     },
   )
+
+  it('验证函数仅接受明确成功并保留幂等状态', async () => {
+    await expect(gatewayWith({ data: { verified: true, alreadyVerified: false }, error: null }).gateway.verifyNotificationEmail('token'))
+      .resolves.toEqual({ verified: true, alreadyVerified: false })
+    await expect(gatewayWith({ data: { verified: true, alreadyVerified: true }, error: null }).gateway.verifyNotificationEmail('token'))
+      .resolves.toEqual({ verified: true, alreadyVerified: true })
+    await expect(gatewayWith({ data: null, error: null }).gateway.verifyNotificationEmail('token'))
+      .rejects.toThrow('未确认验证结果')
+  })
 })

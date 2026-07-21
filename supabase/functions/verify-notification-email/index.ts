@@ -12,15 +12,17 @@ Deno.serve(async (request) => {
     const tokenHash = await sha256(token)
     const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
     const attemptKey = await sha256(`${forwarded}:${request.headers.get('user-agent') ?? ''}`)
-    const { data, error } = await serviceClient().rpc('consume_notification_email_verification', {
+    const { data, error } = await serviceClient().rpc('consume_notification_email_verification_v2', {
       p_token_hash: tokenHash, p_attempt_key: attemptKey,
     })
     if (error) throw error
-    const result = data?.[0] as { verified: boolean; error_code: string | null } | undefined
-    if (result?.verified) return json({ message: '通知邮箱验证成功。' })
+    const result = data?.[0] as { verified: boolean; error_code: string | null; already_verified: boolean } | undefined
+    if (result?.verified) {
+      return json({ verified: true, alreadyVerified: result.already_verified === true })
+    }
     const messages: Record<string, string> = {
-      expired: '验证链接已过期，请重新发送。', used: '验证链接已经使用。',
-      invalidated: '验证链接已失效，请使用最新邮件。', email_changed: '通知邮箱已变更，请重新发送验证邮件。',
+      expired: '验证链接已过期，请重新发送。', used: '验证链接已经使用，但通知邮箱未完成验证。',
+      invalidated: '已有更新的验证邮件，请使用最新邮件。', email_changed: '通知邮箱已变更，请重新发送验证邮件。',
       rate_limited: '验证尝试过多，请稍后再试。', invalid: '验证链接无效。',
     }
     return json({ error: messages[result?.error_code ?? 'invalid'] ?? messages.invalid }, result?.error_code === 'rate_limited' ? 429 : 400)
@@ -29,4 +31,3 @@ Deno.serve(async (request) => {
     return json({ error: '暂时无法验证通知邮箱。' }, 500)
   }
 })
-

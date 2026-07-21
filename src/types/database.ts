@@ -163,6 +163,8 @@ export interface Database {
       create_task_with_reminders_v2: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: string }
       update_task_with_reminders_v2: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: undefined }
       cancel_notification_email_verification_issue: { Args: { p_token_hash: string }; Returns: undefined }
+      mark_notification_email_verification_delivered: { Args: { p_token_hash: string }; Returns: undefined }
+      consume_notification_email_verification_v2: { Args: { p_token_hash: string; p_attempt_key: string }; Returns: { verified: boolean; user_id: string | null; error_code: string | null; already_verified: boolean }[] }
       set_task_assignees: { Args: { p_task_id: string; p_assignee_ids: string[] }; Returns: undefined }
     }
     Enums: {

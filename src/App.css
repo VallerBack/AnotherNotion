@@ -447,10 +447,12 @@ h2 {
   flex: 0 0 11px;
 }
 
-.reminder-toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: pointer; }
+.form label.reminder-toggle-row,
+.reminder-toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: pointer; width: 100%; }
 .reminder-toggle-row span { display: flex; min-width: 0; flex-direction: column; }
 .reminder-toggle-row small { color: #777770; font-weight: normal; }
-.reminder-toggle-row input { flex: 0 0 auto; }
+.form label.reminder-toggle-row input[type='checkbox'],
+.reminder-toggle-row input[type='checkbox'] { width: auto; flex: 0 0 auto; margin: 0; padding: 0; }
 .assignee-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
 .chip-list { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 .chip { border: 1px solid #d8d8d2; border-radius: 999px; padding: 3px 9px; background: #f7f7f4; }
@@ -714,9 +716,20 @@ code {
   gap: 0.65rem;
 }
 
-.checkbox-row input {
-  width: auto;
+.form label.checkbox-row {
+  display: flex;
 }
+
+.form label.checkbox-row input[type='checkbox'],
+.checkbox-row input[type='checkbox'] {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+}
+.subsection-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.subsection-heading h3 { margin: 0; }
+.comment-editor { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
+.text-error { color: #842d2d; }
 .reminders {
   display: grid;
   gap: 1rem;

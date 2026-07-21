@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/auth-context'
 import { DEFAULT_TIMEZONE, formatInTimezone, timezoneLabel } from '../lib/datetime'
 import { Markdown } from '../components/Markdown'
@@ -125,6 +125,15 @@ export function TaskDetailsPage({ repository }: { repository: TaskRepository }) 
       <div><p className="eyebrow">只读任务详情</p><h2>{task.title}</h2></div>
       {task.deletedAt && <span className="status-pill status--cancelled">位于回收站</span>}
     </div>
+    <nav className="detail-tabs" aria-label="任务页面">
+      <Link className="active" to={`/tasks/${task.id}`} state={locationState}>任务详情</Link>
+      <Link to={`/tasks/${task.id}/activity`} state={{
+        from: `${location.pathname}${location.search}`,
+        scrollY: window.scrollY,
+        cachedTask: task,
+        previousState: locationState,
+      }}>提醒与评论</Link>
+    </nav>
     <dl className="task-detail__grid">
       <div><dt>状态</dt><dd>{TASK_STATUS_LABELS[task.status]}</dd></div>
       <div><dt>优先级</dt><dd>{TASK_PRIORITY_LABELS[task.priority]}</dd></div>

@@ -51,6 +51,10 @@ const idempotentVerificationSql = await readFile(
   new URL('20260721000200_idempotent_notification_email_verification.sql', migrationsUrl),
   'utf8',
 )
+const taskActivityReminderSql = await readFile(
+  new URL('20260721000300_harden_task_activity_reminders.sql', migrationsUrl),
+  'utf8',
+)
 const activityAssigneesSql = await readFile(
   new URL('20260720000900_task_activity_multi_assignees.sql', migrationsUrl), 'utf8',
 )
@@ -420,4 +424,23 @@ test('comment edits preserve author and record updater with a 5000 character cap
   assert.match(activityAssigneesSql, /new\.updated_by := auth\.uid\(\)/i)
   assert.match(activityAssigneesSql, /char_length\(body_md\) between 1 and 5000/i)
   assert.doesNotMatch(activityAssigneesSql, /new\.author_id/i)
+})
+
+test('activity reminder mutations revalidate member, active task, recipient, and time', () => {
+  assert.match(taskActivityReminderSql, /create or replace function public\.create_task_reminders/i)
+  assert.match(taskActivityReminderSql, /create or replace function public\.reschedule_task_reminder/i)
+  assert.match(taskActivityReminderSql, /private\.is_workspace_member\(t\.workspace_id\)/i)
+  assert.match(taskActivityReminderSql, /t\.deleted_at is null/i)
+  assert.match(taskActivityReminderSql, /notification_email_verified_at is not null/i)
+  assert.match(taskActivityReminderSql, /email_notifications_enabled/i)
+  assert.match(taskActivityReminderSql, /p_remind_at <= statement_timestamp\(\)/i)
+  assert.match(taskActivityReminderSql, /select distinct user_id from unnest\(p_recipient_user_ids\)/i)
+  assert.doesNotMatch(taskActivityReminderSql, /\brole\b|owner|admin|disable row level security|\bto anon\b/i)
+})
+
+test('mail reminder switches override generic form grid and full-width input rules', async () => {
+  const css = await readFile(new URL('../src/App.css', import.meta.url), 'utf8')
+  assert.match(css, /\.form label\.reminder-toggle-row,[\s\S]*?display:\s*flex[\s\S]*?justify-content:\s*space-between/i)
+  assert.match(css, /\.form label\.reminder-toggle-row input\[type='checkbox'\][\s\S]*?width:\s*auto[\s\S]*?flex:\s*0 0 auto[\s\S]*?margin:\s*0/i)
+  assert.doesNotMatch(css, /\.reminder-toggle-row[^}]*position:\s*absolute/i)
 })

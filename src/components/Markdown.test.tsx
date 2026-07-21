@@ -17,4 +17,8 @@ describe('安全 Markdown', () => {
     expect(screen.getByRole('link', { name: '官网' })).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByRole('link', { name: '官网' })).toHaveAttribute('target', '_blank')
   })
+  it('不会渲染可执行的危险链接', () => {
+    render(<Markdown>{'[危险链接](javascript:alert(1))'}</Markdown>)
+    expect(screen.getByText('危险链接')).not.toHaveAttribute('href', expect.stringMatching(/^javascript:/i))
+  })
 })

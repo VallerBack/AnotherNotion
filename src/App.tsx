@@ -341,7 +341,7 @@ function SettingsPage() {
         <button type="button" className="button" disabled={!profile?.notificationEmail || sendingVerification || resendSeconds > 0} onClick={() => void sendVerification()}>
           {sendingVerification ? '发送中…' : resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '发送验证邮件'}
         </button>
-        <label className="checkbox-row"><input type="checkbox" checked={notificationsEnabled} disabled={!notificationEmail} onChange={(event) => setNotificationsEnabled(event.target.checked)} />启用邮件提醒</label>
+        <label className="reminder-toggle-row"><span>启用邮件提醒</span><input type="checkbox" checked={notificationsEnabled} disabled={!notificationEmail} onChange={(event) => setNotificationsEnabled(event.target.checked)} /></label>
         <button className="button button--primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button>
       </form>
     </section>

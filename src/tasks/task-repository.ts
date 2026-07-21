@@ -163,6 +163,8 @@ function toTaskWrite(draft: TaskDraft) {
 }
 
 export class SupabaseTaskRepository implements TaskRepository {
+  private channelSequence = 0
+
   constructor(private readonly client: SupabaseClient<Database>) {}
 
   async listTasks(workspaceId: string, userId: string, view: TaskView, timezone = DEFAULT_TIMEZONE) {
@@ -453,7 +455,8 @@ export class SupabaseTaskRepository implements TaskRepository {
   }
 
   subscribeWorkspace(workspaceId: string, onChange: () => void) {
-    const channel = this.client.channel(`workspace:${workspaceId}`)
+    this.channelSequence += 1
+    const channel = this.client.channel(`workspace:${workspaceId}:${this.channelSequence}`)
     for (const table of ['tasks', 'labels', 'task_labels', 'task_assignees', 'comments', 'task_reminders'] as const) {
       channel.on(
         'postgres_changes',

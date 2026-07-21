@@ -33,8 +33,7 @@ class AuthMock implements AuthGateway {
   verifyNotificationEmail = vi.fn(async () => ({ verified: true as const, alreadyVerified: false }))
   loadProfile = vi.fn(async () => ({
     id: 'user-1', displayName: '成员', timezone: 'UTC',
-    notificationEmail: null, notificationEmailVerifiedAt: null,
-    emailNotificationsEnabled: false, mustChangePassword: false,
+    mustChangePassword: false,
   }))
   loadMemberships = vi.fn(async () => [{ workspaceId: 'workspace-1', workspaceName: 'AnotherNotion' }])
   loadTaskCount = vi.fn(async () => 0)

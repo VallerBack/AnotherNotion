@@ -23,9 +23,6 @@ class MockAuthGateway implements AuthGateway {
     id: 'user-1',
     displayName: '测试成员',
     timezone: 'Asia/Shanghai',
-    notificationEmail: null,
-    notificationEmailVerifiedAt: null,
-    emailNotificationsEnabled: false,
     mustChangePassword: false,
   }
   memberships: WorkspaceMembership[] = []
@@ -43,8 +40,6 @@ class MockAuthGateway implements AuthGateway {
   })
   updatePassword = vi.fn(async () => undefined)
   updateProfile = vi.fn(async () => undefined)
-  requestNotificationEmailVerification = vi.fn(async () => ({ sent: true, dryRun: false }))
-  verifyNotificationEmail = vi.fn(async () => ({ verified: true as const, alreadyVerified: false }))
   loadProfile = vi.fn(async (userId: string) => ({ ...this.profile, id: userId }))
   loadMemberships = vi.fn(async () => this.memberships)
   loadTaskCount = vi.fn(async () => 3)
@@ -237,57 +232,6 @@ describe('认证访问控制', () => {
 
     expect(await screen.findByRole('heading', { name: '首次登录，请先修改密码' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '产品小组' })).not.toBeInTheDocument()
-  })
-
-  it('打开验证链接不会自动消费 token，点击确认后只提交一次', async () => {
-    window.location.hash = '#/verify-notification-email?token=test-verification-token'
-    const gateway = new MockAuthGateway()
-    render(<AuthApp gateway={gateway} />)
-
-    const button = await screen.findByRole('button', { name: '确认验证此通知邮箱' })
-    expect(gateway.verifyNotificationEmail).not.toHaveBeenCalled()
-    const user = userEvent.setup()
-    await Promise.all([user.click(button), user.click(button)])
-    expect(await screen.findByRole('heading', { name: '验证成功' })).toBeInTheDocument()
-    expect(gateway.verifyNotificationEmail).toHaveBeenCalledWith('test-verification-token')
-    expect(gateway.verifyNotificationEmail).toHaveBeenCalledTimes(1)
-  })
-
-  it('幂等验证结果显示通知邮箱已经验证', async () => {
-    window.location.hash = '#/verify-notification-email?token=test-verification-token'
-    const gateway = new MockAuthGateway()
-    gateway.verifyNotificationEmail.mockResolvedValueOnce({ verified: true, alreadyVerified: true })
-    render(<AuthApp gateway={gateway} />)
-
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '确认验证此通知邮箱' }))
-    expect(await screen.findByText('该通知邮箱已经验证。')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '返回设置' })).toHaveAttribute('href', '#/settings')
-  })
-
-  it('验证成功后后台刷新已登录用户 profile，不进入全局登录 loading', async () => {
-    window.location.hash = '#/verify-notification-email?token=test-verification-token'
-    const gateway = new MockAuthGateway()
-    gateway.currentSession = session
-    gateway.memberships = [membership]
-    render(<AuthApp gateway={gateway} />)
-
-    await waitFor(() => expect(gateway.loadProfile).toHaveBeenCalledTimes(1))
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '确认验证此通知邮箱' }))
-    expect(await screen.findByText('通知邮箱验证成功。')).toBeInTheDocument()
-    await waitFor(() => expect(gateway.loadProfile).toHaveBeenCalledTimes(2))
-    expect(screen.queryByText('正在恢复登录状态')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '验证成功' })).toBeInTheDocument()
-  })
-
-  it('缺少 token 时显示链接不完整且不调用函数', async () => {
-    window.location.hash = '#/verify-notification-email'
-    const gateway = new MockAuthGateway()
-    render(<AuthApp gateway={gateway} />)
-
-    expect(await screen.findByText('验证链接不完整。')).toBeInTheDocument()
-    expect(gateway.verifyNotificationEmail).not.toHaveBeenCalled()
   })
 
   it('设置页隐藏旧邮件配置并显示频道提醒说明', async () => {

@@ -10,16 +10,12 @@ export type WorkspaceRole = 'owner' | 'member'
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskScheduleKind = 'none' | 'all_day' | 'timed'
-export type TaskReminderStatus = 'pending' | 'processing' | 'sent' | 'failed' | 'cancelled'
 export type ChannelReminderStatus = 'pending' | 'exported' | 'cancelled' | 'failed'
 
 type ProfileRow = {
   id: string
   display_name: string
   timezone: string
-  notification_email: string | null
-  notification_email_verified_at: string | null
-  email_notifications_enabled: boolean
   must_change_password: boolean
   created_at: string
   updated_at: string
@@ -91,21 +87,6 @@ type CommentRow = {
 
 type TaskAssigneeRow = { task_id: string; user_id: string; workspace_id: string; assigned_by: string; assigned_at: string }
 
-type TaskReminderRow = {
-  id: string
-  workspace_id: string
-  task_id: string | null
-  recipient_user_id: string
-  remind_at: string
-  status: TaskReminderStatus
-  attempt_count: number
-  next_attempt_at: string | null
-  locked_at: string | null
-  sent_at: string | null
-  last_error: string | null
-  created_at: string
-  updated_at: string
-}
 type ChannelReminderRow = {
   id: string; workspace_id: string; task_id: string; remind_at: string
   status: ChannelReminderStatus; exported_at: string | null; export_attempt_count: number
@@ -122,7 +103,7 @@ type TableDefinition<Row, Insert, Update> = {
 export interface Database {
   public: {
     Tables: {
-      profiles: TableDefinition<ProfileRow, never, Pick<ProfileRow, 'display_name' | 'timezone' | 'notification_email' | 'email_notifications_enabled'>>
+      profiles: TableDefinition<ProfileRow, never, Pick<ProfileRow, 'display_name' | 'timezone'>>
       workspaces: TableDefinition<WorkspaceRow, never, Pick<WorkspaceRow, 'name'>>
       workspace_members: TableDefinition<WorkspaceMemberRow, never, never>
       tasks: TableDefinition<
@@ -146,7 +127,6 @@ export interface Database {
         Pick<CommentRow, 'workspace_id' | 'task_id' | 'author_id' | 'body_md'>,
         Pick<CommentRow, 'body_md'>
       >
-      task_reminders: TableDefinition<TaskReminderRow, never, never>
       channel_reminders: TableDefinition<ChannelReminderRow, never, never>
     }
     Views: Record<string, never>
@@ -159,19 +139,7 @@ export interface Database {
       restore_task: { Args: { p_task_id: string }; Returns: undefined }
       permanently_delete_task: { Args: { p_task_id: string }; Returns: undefined }
       complete_password_change: { Args: Record<string, never>; Returns: undefined }
-      get_my_profile_preferences: { Args: Record<string, never>; Returns: Pick<ProfileRow, 'id' | 'display_name' | 'timezone' | 'notification_email' | 'notification_email_verified_at' | 'email_notifications_enabled' | 'must_change_password'>[] }
-      list_eligible_reminder_recipients: { Args: { p_workspace_id: string }; Returns: { user_id: string; display_name: string }[] }
-      create_task_reminders: { Args: { p_task_id: string; p_recipient_user_ids: string[]; p_remind_at: string }; Returns: undefined }
-      cancel_task_reminder: { Args: { p_reminder_id: string }; Returns: undefined }
-      reschedule_task_reminder: { Args: { p_reminder_id: string; p_remind_at: string }; Returns: undefined }
-      list_reminder_recipient_capabilities: { Args: { p_workspace_id: string }; Returns: { user_id: string; display_name: string; can_receive_email: boolean }[] }
-      create_task_with_reminders: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: string }
-      update_task_with_reminders: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: undefined }
-      create_task_with_reminders_v2: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: string }
-      update_task_with_reminders_v2: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_recipient_user_ids: string[]; p_remind_at: string | null }; Returns: undefined }
-      cancel_notification_email_verification_issue: { Args: { p_token_hash: string }; Returns: undefined }
-      mark_notification_email_verification_delivered: { Args: { p_token_hash: string }; Returns: undefined }
-      consume_notification_email_verification_v2: { Args: { p_token_hash: string; p_attempt_key: string }; Returns: { verified: boolean; user_id: string | null; error_code: string | null; already_verified: boolean }[] }
+      get_my_profile_preferences: { Args: Record<string, never>; Returns: Pick<ProfileRow, 'id' | 'display_name' | 'timezone' | 'must_change_password'>[] }
       set_task_assignees: { Args: { p_task_id: string; p_assignee_ids: string[] }; Returns: undefined }
       set_task_channel_reminder: { Args: { p_task_id: string; p_remind_at: string }; Returns: string }
       cancel_channel_reminder: { Args: { p_reminder_id: string }; Returns: undefined }
@@ -185,7 +153,6 @@ export interface Database {
       task_status: TaskStatus
       task_priority: TaskPriority
       task_schedule_kind: TaskScheduleKind
-      task_reminder_status: TaskReminderStatus
       channel_reminder_status: ChannelReminderStatus
     }
     CompositeTypes: Record<string, never>

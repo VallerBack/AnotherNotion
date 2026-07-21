@@ -382,15 +382,6 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-[functions.request-email-verification]
-verify_jwt = true
-
-[functions.verify-notification-email]
-verify_jwt = false
-
-[functions.send-reminders]
-verify_jwt = false
-
 [functions.reminder-feed]
 verify_jwt = false
 

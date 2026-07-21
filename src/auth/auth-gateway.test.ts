@@ -1,50 +1,40 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Database } from '../types/database'
 import { SupabaseAuthGateway } from './auth-gateway'
 
-function gatewayWith(response: unknown) {
-  const invoke = vi.fn(async () => response)
-  const client = { functions: { invoke } } as unknown as SupabaseClient<Database>
-  return { gateway: new SupabaseAuthGateway(client), invoke }
-}
+describe('profile gateway', () => {
+  it('只向自己的 profile 提交 display_name 和 timezone', async () => {
+    const eq = vi.fn(async () => ({ error: null }))
+    const update = vi.fn((values: Record<string, string>) => {
+      void values
+      return { eq }
+    })
+    const from = vi.fn(() => ({ update }))
+    const gateway = new SupabaseAuthGateway({ from } as unknown as SupabaseClient<Database>)
 
-describe('通知邮箱函数响应协议', () => {
-  beforeEach(() => {
-    vi.spyOn(console, 'info').mockImplementation(() => undefined)
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-  })
-  afterEach(() => vi.restoreAllMocks())
+    await gateway.updateProfile('user-1', {
+      displayName: '  测试成员  ',
+      timezone: 'Asia/Shanghai',
+    })
 
-  it('明确 await invoke，且只有 sent=true 才成功', async () => {
-    const { gateway, invoke } = gatewayWith({ data: { sent: true, dryRun: false, status: 202 }, error: null })
-    await expect(gateway.requestNotificationEmailVerification()).resolves.toEqual({ sent: true, dryRun: false })
-    expect(invoke).toHaveBeenCalledWith('request-email-verification', { body: {} })
-  })
-
-  it('data=null 或 sent=false 不能成功', async () => {
-    await expect(gatewayWith({ data: null, error: null }).gateway.requestNotificationEmailVerification()).rejects.toThrow('未确认实际投递')
-    await expect(gatewayWith({ data: { sent: false, dryRun: false }, error: null }).gateway.requestNotificationEmailVerification()).rejects.toThrow('未确认实际投递')
-  })
-
-  it('dryRun 返回模拟发送而不伪装成功', async () => {
-    await expect(gatewayWith({ data: { sent: false, dryRun: true, status: 200 }, error: null }).gateway.requestNotificationEmailVerification())
-      .resolves.toEqual({ sent: false, dryRun: true })
+    expect(from).toHaveBeenCalledWith('profiles')
+    expect(update).toHaveBeenCalledWith({
+      display_name: '测试成员',
+      timezone: 'Asia/Shanghai',
+    })
+    expect(eq).toHaveBeenCalledWith('id', 'user-1')
+    expect(Object.keys(update.mock.calls[0][0])).toEqual(['display_name', 'timezone'])
   })
 
-  it.each([[401, '登录状态已失效'], [404, '尚未部署'], [429, '发送过于频繁'], [500, '暂时不可用']])(
-    'HTTP %s 转换为中文错误', async (status, message) => {
-      const error = { context: new Response(null, { status }) }
-      await expect(gatewayWith({ data: null, error }).gateway.requestNotificationEmailVerification()).rejects.toThrow(message)
-    },
-  )
+  it('修改密码后调用受保护 RPC 清除 must_change_password', async () => {
+    const updateUser = vi.fn(async () => ({ error: null }))
+    const rpc = vi.fn(async () => ({ error: null }))
+    const gateway = new SupabaseAuthGateway({ auth: { updateUser }, rpc } as unknown as SupabaseClient<Database>)
 
-  it('验证函数仅接受明确成功并保留幂等状态', async () => {
-    await expect(gatewayWith({ data: { verified: true, alreadyVerified: false }, error: null }).gateway.verifyNotificationEmail('token'))
-      .resolves.toEqual({ verified: true, alreadyVerified: false })
-    await expect(gatewayWith({ data: { verified: true, alreadyVerified: true }, error: null }).gateway.verifyNotificationEmail('token'))
-      .resolves.toEqual({ verified: true, alreadyVerified: true })
-    await expect(gatewayWith({ data: null, error: null }).gateway.verifyNotificationEmail('token'))
-      .rejects.toThrow('未确认验证结果')
+    await gateway.updatePassword('new-password')
+
+    expect(updateUser).toHaveBeenCalledWith({ password: 'new-password' })
+    expect(rpc).toHaveBeenCalledWith('complete_password_change')
   })
 })

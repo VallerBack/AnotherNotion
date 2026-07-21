@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   HashRouter,
   Link,
@@ -282,8 +282,6 @@ function SettingsPage() {
       await updateProfile({
         displayName,
         timezone,
-        notificationEmail: profile?.notificationEmail ?? null,
-        emailNotificationsEnabled: profile?.emailNotificationsEnabled ?? false,
       })
       setMessage('账户设置已保存。')
     } catch (reason) {
@@ -312,39 +310,6 @@ function SettingsPage() {
     </section>
     <PasswordPage />
   </section>
-}
-
-function VerifyNotificationEmailPage() {
-  const { gateway, refreshProfileInBackground } = useAuth()
-  const location = useLocation()
-  const token = new URLSearchParams(location.search).get('token')
-  const [state, setState] = useState<'ready' | 'verifying' | 'success' | 'error'>(token ? 'ready' : 'error')
-  const [message, setMessage] = useState(token ? '点击下方按钮确认验证此通知邮箱。' : '验证链接不完整。')
-  const submitted = useRef(false)
-
-  async function verify() {
-    if (!token || submitted.current) return
-    submitted.current = true
-    setState('verifying')
-    setMessage('正在验证。')
-    try {
-      const result = await gateway.verifyNotificationEmail(token)
-      setState('success')
-      setMessage(result.alreadyVerified ? '该通知邮箱已经验证。' : '通知邮箱验证成功。')
-      void refreshProfileInBackground()
-    } catch (reason) {
-      setState('error')
-      setMessage(getAuthErrorMessage(reason, '验证通知邮箱'))
-    }
-  }
-
-  return <main className="screen"><section className="card card--center">
-    <p className="eyebrow">EMAIL VERIFICATION</p>
-    <h1>{state === 'success' ? '验证成功' : state === 'error' ? '验证失败' : state === 'verifying' ? '正在验证' : '确认验证此通知邮箱'}</h1>
-    <div className={`notice ${state === 'error' ? 'notice--error' : state === 'success' ? 'notice--success' : ''}`} role="status">{message}</div>
-    {state === 'ready' || state === 'verifying' ? <button type="button" className="button button--primary" disabled={state === 'verifying'} onClick={() => void verify()}>{state === 'verifying' ? '正在验证' : '确认验证此通知邮箱'}</button> : null}
-    <Link className="button" to={state === 'success' ? '/settings' : '/login'}>{state === 'success' ? '返回设置' : '返回登录'}</Link>
-  </section></main>
 }
 
 const navigation = [
@@ -428,7 +393,6 @@ export function AuthApp({
     <HashRouter>
       <AuthProvider gateway={gateway}>
         <Routes>
-          <Route path="/verify-notification-email" element={<VerifyNotificationEmailPage />} />
           <Route path="/login" element={<AuthenticatedRoutes taskRepository={taskRepository} />} />
           <Route path="/*" element={<AuthenticatedRoutes taskRepository={taskRepository} />} />
         </Routes>

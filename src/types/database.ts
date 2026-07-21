@@ -11,6 +11,7 @@ export type TaskStatus = 'todo' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type TaskScheduleKind = 'none' | 'all_day' | 'timed'
 export type TaskReminderStatus = 'pending' | 'processing' | 'sent' | 'failed' | 'cancelled'
+export type ChannelReminderStatus = 'pending' | 'exported' | 'cancelled' | 'failed'
 
 type ProfileRow = {
   id: string
@@ -105,6 +106,11 @@ type TaskReminderRow = {
   created_at: string
   updated_at: string
 }
+type ChannelReminderRow = {
+  id: string; workspace_id: string; task_id: string; remind_at: string
+  status: ChannelReminderStatus; exported_at: string | null; export_attempt_count: number
+  created_by: string | null; created_at: string; updated_at: string
+}
 
 type TableDefinition<Row, Insert, Update> = {
   Row: Row
@@ -141,6 +147,7 @@ export interface Database {
         Pick<CommentRow, 'body_md'>
       >
       task_reminders: TableDefinition<TaskReminderRow, never, never>
+      channel_reminders: TableDefinition<ChannelReminderRow, never, never>
     }
     Views: Record<string, never>
     Functions: {
@@ -166,6 +173,12 @@ export interface Database {
       mark_notification_email_verification_delivered: { Args: { p_token_hash: string }; Returns: undefined }
       consume_notification_email_verification_v2: { Args: { p_token_hash: string; p_attempt_key: string }; Returns: { verified: boolean; user_id: string | null; error_code: string | null; already_verified: boolean }[] }
       set_task_assignees: { Args: { p_task_id: string; p_assignee_ids: string[] }; Returns: undefined }
+      set_task_channel_reminder: { Args: { p_task_id: string; p_remind_at: string }; Returns: string }
+      cancel_channel_reminder: { Args: { p_reminder_id: string }; Returns: undefined }
+      reschedule_channel_reminder: { Args: { p_reminder_id: string; p_remind_at: string }; Returns: undefined }
+      reexport_channel_reminder: { Args: { p_reminder_id: string }; Returns: undefined }
+      create_task_with_channel_reminder_v2: { Args: { p_workspace_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_remind_at: string | null }; Returns: string }
+      update_task_with_channel_reminder_v2: { Args: { p_task_id: string; p_task: Json; p_label_ids: string[]; p_assignee_ids: string[]; p_remind_at: string | null }; Returns: undefined }
     }
     Enums: {
       workspace_role: WorkspaceRole
@@ -173,6 +186,7 @@ export interface Database {
       task_priority: TaskPriority
       task_schedule_kind: TaskScheduleKind
       task_reminder_status: TaskReminderStatus
+      channel_reminder_status: ChannelReminderStatus
     }
     CompositeTypes: Record<string, never>
   }

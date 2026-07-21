@@ -10,7 +10,6 @@ import type {
   TaskComment,
   TaskReminder,
   TaskReminderDraft,
-  ReminderRecipient,
   TaskDraft,
   TaskRecord,
   TaskRepository,
@@ -77,7 +76,6 @@ export function TaskEditor({
   initialDraft,
   labels,
   members,
-  reminderRecipients,
   repository,
   workspaceId,
   onSave,
@@ -87,13 +85,12 @@ export function TaskEditor({
   initialDraft?: TaskDraft
   labels: WorkspaceLabel[]
   members: WorkspaceMember[]
-  reminderRecipients: ReminderRecipient[]
   repository: TaskRepository
   workspaceId: string
   onSave(draft: TaskDraft, reminder: TaskReminderDraft): Promise<void>
   onCancel(): void
 }) {
-  const { profile, session } = useAuth()
+  const { profile } = useAuth()
   const location = useLocation()
   const timezone = profile?.timezone ?? DEFAULT_TIMEZONE
   const [draft, setDraft] = useState<TaskDraft>(() =>
@@ -104,11 +101,6 @@ export function TaskEditor({
   const [reminderEnabled, setReminderEnabled] = useState(false)
   const [reminderOption, setReminderOption] = useState('start')
   const [customReminderAt, setCustomReminderAt] = useState('')
-  const [recipientIds, setRecipientIds] = useState<string[]>([])
-  const eligibleReminderRecipients = useMemo(
-    () => reminderRecipients.filter((recipient) => recipient.canReceiveEmail),
-    [reminderRecipients],
-  )
 
   useEffect(() => {
     if (!task) return
@@ -119,19 +111,9 @@ export function TaskEditor({
       setReminderEnabled(true)
       setReminderOption('custom')
       setCustomReminderAt(utcToZonedInput(pending[0].remindAt, timezone))
-      const eligibleIds = new Set(eligibleReminderRecipients.map((recipient) => recipient.userId))
-      setRecipientIds([...new Set(pending.map((reminder) => reminder.recipientUserId).filter((id) => eligibleIds.has(id)))])
     }).catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : '加载提醒失败') })
     return () => { active = false }
-  }, [eligibleReminderRecipients, repository, task, timezone, workspaceId])
-
-  useEffect(() => {
-    if (recipientIds.length > 0) return
-    const preferred = draft.assigneeIds[0] ?? session?.user.id
-    if (preferred && eligibleReminderRecipients.some((recipient) => recipient.userId === preferred)) {
-      setRecipientIds([preferred])
-    }
-  }, [draft.assigneeIds, eligibleReminderRecipients, recipientIds.length, session?.user.id])
+  }, [repository, task, timezone, workspaceId])
 
   function reminderAnchor() {
     if (draft.scheduleKind === 'timed') return draft.startAt ?? draft.dueAt
@@ -140,17 +122,16 @@ export function TaskEditor({
   }
 
   function buildReminder(): TaskReminderDraft {
-    if (!reminderEnabled) return { enabled: false, recipientUserIds: [], remindAt: null }
+    if (!reminderEnabled) return { enabled: false, remindAt: null }
     const anchorValue = reminderAnchor()
     if (!anchorValue) throw new Error('请先设置任务开始或截止时间。')
-    if (recipientIds.length === 0) throw new Error('请选择至少一位邮箱已就绪的收件人。')
     const offsets: Record<string, number> = { start: 0, ten_minutes: 10, one_hour: 60, one_day: 1440 }
     const remindAt = reminderOption === 'custom'
       ? zonedInputToUtc(customReminderAt, timezone)
       : DateTime.fromISO(anchorValue).minus({ minutes: offsets[reminderOption] }).toUTC().toISO()
     if (!remindAt) throw new Error('请选择有效的提醒时间。')
     if (DateTime.fromISO(remindAt) > DateTime.fromISO(anchorValue)) throw new Error('提醒时间不能晚于任务时间。')
-    return { enabled: true, recipientUserIds: recipientIds, remindAt }
+    return { enabled: true, remindAt }
   }
 
   async function submit(event: FormEvent) {
@@ -252,10 +233,10 @@ export function TaskEditor({
             </label>
           </>}
           <fieldset className="field--wide reminder-editor">
-            <legend>邮件提醒</legend>
+            <legend>频道提醒</legend>
             <label className="reminder-toggle-row">
-              <span><strong>启用邮件提醒</strong><small>按所选时区发送给指定成员</small></span>
-              <input type="checkbox" aria-label="启用邮件提醒" checked={reminderEnabled} disabled={draft.scheduleKind === 'none'} onChange={(event) => setReminderEnabled(event.target.checked)} />
+              <span><strong>启用频道提醒</strong><small>由外部机器人定时读取，负责人会自动包含在提醒内容中</small></span>
+              <input type="checkbox" aria-label="启用频道提醒" checked={reminderEnabled} disabled={draft.scheduleKind === 'none'} onChange={(event) => setReminderEnabled(event.target.checked)} />
             </label>
             {draft.scheduleKind === 'none' && <span className="muted">无日期任务不能启用提醒。</span>}
             {reminderEnabled && <>
@@ -269,15 +250,6 @@ export function TaskEditor({
               {reminderOption === 'custom' && <label>自定义提醒时间
                 <input type="datetime-local" value={customReminderAt} onChange={(event) => setCustomReminderAt(event.target.value)} />
               </label>}
-              <div className="reminder-recipient-picker"><strong>收件人</strong>
-                {draft.assigneeIds.length > 0 && <button type="button" className="link-button" onClick={() => setRecipientIds(draft.assigneeIds.filter((id) => eligibleReminderRecipients.some((recipient) => recipient.userId === id)))}>选择全部负责人</button>}
-                {eligibleReminderRecipients.map((recipient) => <label key={recipient.userId} className="checkbox-row">
-                  <input type="checkbox" checked={recipientIds.includes(recipient.userId)} onChange={() => setRecipientIds((current) => current.includes(recipient.userId) ? current.filter((id) => id !== recipient.userId) : [...current, recipient.userId])} />
-                  {recipient.displayName}
-                </label>)}
-                {eligibleReminderRecipients.length === 0 && <p className="muted">暂无拥有有效且已验证通知邮箱的工作区成员。</p>}
-                {!eligibleReminderRecipients.some((recipient) => recipient.userId === session?.user.id) && <Link to="/settings">当前邮箱未就绪，前往账号设置</Link>}
-              </div>
             </>}
           </fieldset>
           <fieldset className="field--wide label-picker">
@@ -449,8 +421,6 @@ export function Reminders({ repository, task, readOnly = false }: { repository: 
   const { profile } = useAuth()
   const timezone = profile?.timezone ?? DEFAULT_TIMEZONE
   const [reminders, setReminders] = useState<TaskReminder[]>([])
-  const [recipients, setRecipients] = useState<ReminderRecipient[]>([])
-  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([])
   const [remindAt, setRemindAt] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -470,13 +440,9 @@ export function Reminders({ repository, task, readOnly = false }: { repository: 
     if (background) setRefreshing(true)
     else if (!hasLoaded.current) setLoading(true)
     try {
-      const [nextReminders, nextRecipients] = await Promise.all([
-        repository.listTaskReminders(task.workspaceId, task.id),
-        repository.listEligibleReminderRecipients(task.workspaceId),
-      ])
+      const nextReminders = await repository.listTaskReminders(task.workspaceId, task.id)
       if (!mounted.current || requestId !== reminderLoadRequestId.current) return
       setReminders(mergeById(nextReminders))
-      setRecipients(nextRecipients)
       setError(null)
       hasLoaded.current = true
     } catch (reason) {
@@ -514,18 +480,12 @@ export function Reminders({ repository, task, readOnly = false }: { repository: 
     setRemindAt(anchor.minus({ minutes }).setZone(timezone).toFormat("yyyy-MM-dd'T'HH:mm"))
   }
 
-  function toggleRecipient(userId: string) {
-    setSelectedRecipients((current) => current.includes(userId)
-      ? current.filter((id) => id !== userId)
-      : [...current, userId])
-  }
-
   async function create(event: FormEvent) {
     event.preventDefault()
     if (submitLock.current || readOnly) return
     const utc = zonedInputToUtc(remindAt, timezone)
-    if (!utc || selectedRecipients.length === 0) {
-      setError('请选择提醒时间和至少一位可接收邮件的成员。')
+    if (!utc) {
+      setError('请选择有效的提醒时间。')
       return
     }
     if (DateTime.fromISO(utc) <= DateTime.utc()) { setError('提醒时间必须晚于当前时间。'); return }
@@ -534,14 +494,13 @@ export function Reminders({ repository, task, readOnly = false }: { repository: 
     setError(null)
     setSuccess(null)
     try {
-      await repository.createTaskReminders(task.id, [...new Set(selectedRecipients)], utc)
+      await repository.createTaskReminders(task.id, utc)
       if (!mounted.current) return
-      setSelectedRecipients([])
       setRemindAt('')
       setSuccess('提醒已创建。')
       await load(true)
     } catch (reason) {
-      if (mounted.current) setError(safeActivityError(reason, '创建提醒失败，所选时间和收件人已保留。'))
+      if (mounted.current) setError(safeActivityError(reason, '创建提醒失败，所选时间已保留。'))
     } finally {
       submitLock.current = false
       if (mounted.current) setSaving(false)
@@ -573,10 +532,20 @@ export function Reminders({ repository, task, readOnly = false }: { repository: 
     } finally { if (mounted.current) setActionId(null) }
   }
 
-  const eligibleRecipients = recipients.filter((recipient) => recipient.canReceiveEmail)
-  const recipientNames = new Map(recipients.map((recipient) => [recipient.userId, recipient.displayName]))
+  async function reexport(reminderId: string) {
+    if (actionId || readOnly) return
+    setActionId(reminderId)
+    try {
+      await repository.reexportTaskReminder(reminderId)
+      if (mounted.current) { setSuccess('提醒已设为待导出，将在频道服务下次抓取时返回。'); await load(true) }
+    } catch (reason) {
+      if (mounted.current) setError(safeActivityError(reason, '重新导出失败，请稍后重试。'))
+    } finally { if (mounted.current) setActionId(null) }
+  }
+
   return <div className="reminders">
-    <div className="subsection-heading"><h3>邮件提醒</h3>{refreshing && <span className="muted" role="status">正在后台更新…</span>}</div>
+    <div className="subsection-heading"><h3>频道提醒</h3>{refreshing && <span className="muted" role="status">正在后台更新…</span>}</div>
+    <p className="muted">已导出仅表示数据已经交给频道服务，不代表 Discord 或 QQ 最终送达。</p>
     {error && <div className="notice notice--error" role="alert">{error}</div>}
     {success && <div className="notice notice--success" role="status">{success}</div>}
     {!readOnly && <form className="reminder-form" onSubmit={create}>
@@ -588,27 +557,21 @@ export function Reminders({ repository, task, readOnly = false }: { repository: 
         <button type="button" className="button" onClick={() => quickOffset(60)}>提前1小时</button>
         <button type="button" className="button" onClick={() => quickOffset(1440)}>提前1天</button>
       </div>
-      <fieldset><legend>收件人</legend>
-        {task.assigneeIds.some((id) => eligibleRecipients.some((recipient) => recipient.userId === id)) && <button type="button" className="link-button" onClick={() => setSelectedRecipients(task.assigneeIds.filter((id) => eligibleRecipients.some((recipient) => recipient.userId === id)))}>选择全部负责人</button>}
-        {eligibleRecipients.length === 0 ? <p className="muted">暂无拥有有效且已验证通知邮箱的工作区成员。</p> : eligibleRecipients.map((recipient) => <label key={recipient.userId} className="checkbox-row">
-          <input type="checkbox" checked={selectedRecipients.includes(recipient.userId)} onChange={() => toggleRecipient(recipient.userId)} />
-          {recipient.displayName}
-        </label>)}
-      </fieldset>
       <button className="button button--primary" disabled={saving}>{saving ? '创建中…' : '创建提醒'}</button>
     </form>}
     <div className="reminder-list">{loading && reminders.length === 0 ? <p className="muted" aria-busy="true">正在加载提醒…</p> : reminders.length === 0 ? <p className="muted">尚无提醒。</p> : reminders.map((reminder) => <article key={reminder.id} className="reminder-item">
-      <div><strong>{recipientNames.get(reminder.recipientUserId) ?? '工作区成员'}</strong>
+      <div><strong>频道提醒</strong>
         <span>{DateTime.fromISO(reminder.remindAt).setZone(timezone).toLocaleString(DateTime.DATETIME_MED)}</span>
         <span className={`status-pill status--${reminder.status}`}>{REMINDER_STATUS_LABELS[reminder.status]}</span>
         <span className="muted">创建：{DateTime.fromISO(reminder.createdAt).setZone(timezone).setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED)}</span>
-        {reminder.sentAt && <span className="muted">发送：{DateTime.fromISO(reminder.sentAt).setZone(timezone).setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED)}</span>}
-        {reminder.lastError && <small className="notice notice--error">邮件发送失败，请稍后重新安排；持续失败请联系管理员检查邮件服务。</small>}
+        {reminder.exportedAt && <span className="muted">导出：{DateTime.fromISO(reminder.exportedAt).setZone(timezone).setLocale('zh-CN').toLocaleString(DateTime.DATETIME_MED)}</span>}
+        <span className="muted">导出次数：{reminder.exportAttemptCount}</span>
       </div>
       {!readOnly && <div className="task-actions">
         {editingId === reminder.id ? <><label>新的提醒时间（{timezoneLabel(timezone)}）<input type="datetime-local" value={editingAt} onChange={(event) => setEditingAt(event.target.value)} /></label><button className="button" disabled={actionId === reminder.id} onClick={() => void reschedule(reminder)}>{actionId === reminder.id ? '保存中…' : reminder.status === 'cancelled' ? '重新启用' : '保存时间'}</button><button className="button" disabled={Boolean(actionId)} onClick={() => setEditingId(null)}>取消编辑</button></> : <>
-          {['pending', 'processing', 'failed'].includes(reminder.status) && <button className="link-button" disabled={Boolean(actionId)} onClick={() => void cancel(reminder.id)}>{actionId === reminder.id ? '处理中…' : '取消'}</button>}
-          {['pending', 'failed', 'cancelled'].includes(reminder.status) && <button className="link-button" disabled={Boolean(actionId)} onClick={() => { setEditingId(reminder.id); setEditingAt(utcToZonedInput(reminder.remindAt, timezone)); setError(null) }}>{reminder.status === 'cancelled' ? '重新启用' : '改期'}</button>}
+          {['pending', 'failed'].includes(reminder.status) && <button className="link-button" disabled={Boolean(actionId)} onClick={() => void cancel(reminder.id)}>{actionId === reminder.id ? '处理中…' : '取消提醒'}</button>}
+          {['pending', 'failed', 'cancelled', 'exported'].includes(reminder.status) && <button className="link-button" disabled={Boolean(actionId)} onClick={() => { setEditingId(reminder.id); setEditingAt(utcToZonedInput(reminder.remindAt, timezone)); setError(null) }}>修改提醒时间</button>}
+          {['exported', 'failed'].includes(reminder.status) && <button className="link-button" disabled={Boolean(actionId)} onClick={() => void reexport(reminder.id)}>{actionId === reminder.id ? '处理中…' : '重新导出'}</button>}
         </>}
       </div>}
     </article>)}</div>
@@ -623,7 +586,6 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
-  const [reminderRecipients, setReminderRecipients] = useState<ReminderRecipient[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<TaskRecord | 'new' | null>(null)
@@ -633,16 +595,14 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
     if (!userId) return
     if (!hasLoaded.current) setLoading(true)
     try {
-      const [nextTasks, nextLabels, nextMembers, nextReminderRecipients] = await Promise.all([
+      const [nextTasks, nextLabels, nextMembers] = await Promise.all([
         repository.listTasks(workspace.workspaceId, userId, view, profile?.timezone ?? DEFAULT_TIMEZONE),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
-        repository.listEligibleReminderRecipients(workspace.workspaceId),
       ])
       setTasks(nextTasks)
       setLabels(nextLabels)
       setMembers(nextMembers)
-      setReminderRecipients(nextReminderRecipients)
       hasLoaded.current = true
       setError(null)
     } catch (reason) {
@@ -719,7 +679,7 @@ export function TaskBoard({ repository, view }: { repository: TaskRepository; vi
         </div>
       </article>
     ))}</div>}
-    {editing && <TaskEditor task={editing === 'new' ? null : editing} labels={labels} members={members} reminderRecipients={reminderRecipients} repository={repository} workspaceId={workspace.workspaceId} onSave={save} onCancel={() => setEditing(null)} />}
+    {editing && <TaskEditor task={editing === 'new' ? null : editing} labels={labels} members={members} repository={repository} workspaceId={workspace.workspaceId} onSave={save} onCancel={() => setEditing(null)} />}
   </section>
 }
 

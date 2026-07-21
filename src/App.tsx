@@ -266,21 +266,12 @@ function PasswordPage({ forced = false }: { forced?: boolean }) {
 }
 
 function SettingsPage() {
-  const { profile, updateProfile, gateway } = useAuth()
+  const { profile, updateProfile } = useAuth()
   const [displayName, setDisplayName] = useState(profile?.displayName ?? '')
   const [timezone, setTimezone] = useState(profile?.timezone ?? DEFAULT_TIMEZONE)
-  const [notificationEmail, setNotificationEmail] = useState(profile?.notificationEmail ?? '')
-  const [notificationsEnabled, setNotificationsEnabled] = useState(profile?.emailNotificationsEnabled ?? false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [sendingVerification, setSendingVerification] = useState(false)
-  const [resendSeconds, setResendSeconds] = useState(0)
-  useEffect(() => {
-    if (resendSeconds <= 0) return
-    const timer = window.setInterval(() => setResendSeconds((value) => Math.max(0, value - 1)), 1000)
-    return () => window.clearInterval(timer)
-  }, [resendSeconds])
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -291,35 +282,14 @@ function SettingsPage() {
       await updateProfile({
         displayName,
         timezone,
-        notificationEmail: notificationEmail || null,
-        emailNotificationsEnabled: notificationsEnabled,
+        notificationEmail: profile?.notificationEmail ?? null,
+        emailNotificationsEnabled: profile?.emailNotificationsEnabled ?? false,
       })
-      setMessage('账户设置已保存。通知邮箱变更后需要重新验证。')
+      setMessage('账户设置已保存。')
     } catch (reason) {
       setError(getAuthErrorMessage(reason, '保存账户设置'))
     } finally {
       setSaving(false)
-    }
-  }
-
-  async function sendVerification() {
-    setSendingVerification(true)
-    setMessage(null)
-    setError(null)
-    try {
-      const result = await gateway.requestNotificationEmailVerification()
-      if (result.dryRun) {
-        setMessage('模拟发送，未实际投递。')
-      } else if (result.sent) {
-        setMessage('已发送，请检查收件箱和垃圾邮件。')
-        setResendSeconds(60)
-      } else {
-        throw new Error('邮件函数未确认实际投递，请稍后重试。')
-      }
-    } catch (reason) {
-      setError(getAuthErrorMessage(reason, '发送验证邮件'))
-    } finally {
-      setSendingVerification(false)
     }
   }
 
@@ -336,12 +306,7 @@ function SettingsPage() {
             {timezoneOptions(timezone).map((zone) => <option key={zone.value} value={zone.value}>{zone.label}</option>)}
           </select>
         </label>
-        <label>通知邮箱<input type="email" maxLength={320} value={notificationEmail} onChange={(event) => { setNotificationEmail(event.target.value); if (!event.target.value) setNotificationsEnabled(false) }} /></label>
-        <p className="muted">验证状态：{profile?.notificationEmailVerifiedAt ? '已验证' : '未验证'}</p>
-        <button type="button" className="button" disabled={!profile?.notificationEmail || sendingVerification || resendSeconds > 0} onClick={() => void sendVerification()}>
-          {sendingVerification ? '发送中…' : resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : '发送验证邮件'}
-        </button>
-        <label className="reminder-toggle-row"><span>启用邮件提醒</span><input type="checkbox" checked={notificationsEnabled} disabled={!notificationEmail} onChange={(event) => setNotificationsEnabled(event.target.checked)} /></label>
+        <div className="notice">频道提醒由外部机器人定时读取。已导出仅表示数据已经交给频道服务，不代表 Discord 或 QQ 最终送达。</div>
         <button className="button button--primary" disabled={saving}>{saving ? '保存中…' : '保存设置'}</button>
       </form>
     </section>

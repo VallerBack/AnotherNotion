@@ -290,56 +290,14 @@ describe('认证访问控制', () => {
     expect(gateway.verifyNotificationEmail).not.toHaveBeenCalled()
   })
 
-  it('只有 sent=true 才显示验证邮件已发送', async () => {
+  it('设置页隐藏旧邮件配置并显示频道提醒说明', async () => {
     window.location.hash = '#/settings'
     const gateway = new MockAuthGateway()
     gateway.currentSession = session
     gateway.memberships = [membership]
-    gateway.profile = { ...gateway.profile, notificationEmail: 'notice@example.test' }
     render(<AuthApp gateway={gateway} />)
-    const user = userEvent.setup()
-    const button = await screen.findByRole('button', { name: '发送验证邮件' })
-    expect(gateway.requestNotificationEmailVerification).not.toHaveBeenCalled()
-    expect(screen.queryByText('已发送，请检查收件箱和垃圾邮件。')).not.toBeInTheDocument()
-    await user.click(button)
-    expect(await screen.findByText('已发送，请检查收件箱和垃圾邮件。')).toBeInTheDocument()
-  })
-
-  it('invoke error、sent=false 与 dryRun 均不能显示真实发送成功', async () => {
-    window.location.hash = '#/settings'
-    const gateway = new MockAuthGateway()
-    gateway.currentSession = session
-    gateway.memberships = [membership]
-    gateway.profile = { ...gateway.profile, notificationEmail: 'notice@example.test' }
-    gateway.requestNotificationEmailVerification.mockResolvedValueOnce({ sent: false, dryRun: true })
-      .mockResolvedValueOnce({ sent: false, dryRun: false })
-      .mockRejectedValueOnce(new Error('邮件服务暂时不可用。'))
-    render(<AuthApp gateway={gateway} />)
-    const user = userEvent.setup()
-    const button = await screen.findByRole('button', { name: '发送验证邮件' })
-    await user.click(button)
-    expect(await screen.findByText('模拟发送，未实际投递。')).toBeInTheDocument()
-    expect(screen.queryByText('已发送，请检查收件箱和垃圾邮件。')).not.toBeInTheDocument()
-    await user.click(button)
-    expect(await screen.findByRole('alert')).toHaveTextContent('未确认实际投递')
-    await user.click(button)
-    expect(await screen.findByRole('alert')).toHaveTextContent('邮件服务暂时不可用')
-  })
-
-  it.each([
-    ['401', '登录状态已失效，请重新登录。'], ['404', '验证邮件服务尚未部署或项目配置不一致。'],
-    ['429', '发送过于频繁，请稍后再试。'], ['500', '邮件服务暂时不可用。'],
-  ])('HTTP %s 显示中文错误且不显示成功', async (_status, message) => {
-    window.location.hash = '#/settings'
-    const gateway = new MockAuthGateway()
-    gateway.currentSession = session
-    gateway.memberships = [membership]
-    gateway.profile = { ...gateway.profile, notificationEmail: 'notice@example.test' }
-    gateway.requestNotificationEmailVerification.mockRejectedValueOnce(new Error(message))
-    render(<AuthApp gateway={gateway} />)
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '发送验证邮件' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(message)
-    expect(screen.queryByText('已发送，请检查收件箱和垃圾邮件。')).not.toBeInTheDocument()
+    expect(await screen.findByText(/频道提醒由外部机器人定时读取/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('通知邮箱')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发送验证邮件' })).not.toBeInTheDocument()
   })
 })

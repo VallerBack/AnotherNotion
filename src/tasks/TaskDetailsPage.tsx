@@ -97,7 +97,7 @@ export function TaskDetailsPage({ repository }: { repository: TaskRepository }) 
     () => task?.labelIds.map((id) => labels.find((label) => label.id === id)?.name).filter(Boolean) as string[] ?? [],
     [labels, task?.labelIds],
   )
-  const activeReminders = reminders.filter((reminder) => ['pending', 'processing', 'failed'].includes(reminder.status))
+  const activeReminders = reminders.filter((reminder) => ['pending', 'failed'].includes(reminder.status))
 
   function goBack() {
     const target = validReturnPath(locationState?.from)
@@ -153,12 +153,11 @@ export function TaskDetailsPage({ repository }: { repository: TaskRepository }) 
       <Markdown>{task.descriptionMd}</Markdown>
     </section>
     <section className="task-detail__section">
-      <h3>邮件提醒</h3>
-      <p>{activeReminders.length > 0 ? '已启用' : '未启用或没有待发送提醒'}</p>
+      <h3>频道提醒</h3>
+      <p>{activeReminders.length > 0 ? '已启用' : '未启用或没有待导出提醒'}</p>
       {reminders.length === 0 ? <p className="muted">没有提醒记录。</p> : <ul className="task-detail__reminders">
         {reminders.map((reminder) => <li key={reminder.id}>
           <span>{formatInTimezone(reminder.remindAt, timezone)}</span>
-          <span>{memberNames.get(reminder.recipientUserId) ?? '未知成员'}</span>
           <span>{REMINDER_STATUS_LABELS[reminder.status]}</span>
         </li>)}
       </ul>}

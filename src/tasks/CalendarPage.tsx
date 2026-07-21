@@ -17,7 +17,6 @@ import type {
   TaskRecord,
   TaskRepository,
   TaskReminderDraft,
-  ReminderRecipient,
   WorkspaceLabel,
   WorkspaceMember,
 } from './task-repository'
@@ -142,7 +141,6 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [labels, setLabels] = useState<WorkspaceLabel[]>([])
   const [members, setMembers] = useState<WorkspaceMember[]>([])
-  const [reminderRecipients, setReminderRecipients] = useState<ReminderRecipient[]>([])
   const status = searchParams.get('status') ?? 'all'
   const assignee = searchParams.get('assignee') ?? 'all'
   const label = searchParams.get('label') ?? 'all'
@@ -159,16 +157,14 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
     if (!userId) return
     if (!hasLoaded.current) setLoading(true)
     try {
-      const [nextTasks, nextLabels, nextMembers, nextReminderRecipients] = await Promise.all([
+      const [nextTasks, nextLabels, nextMembers] = await Promise.all([
         repository.listTasks(workspace.workspaceId, userId, 'calendar', profile?.timezone ?? DEFAULT_TIMEZONE),
         repository.listLabels(workspace.workspaceId),
         repository.listMembers(workspace.workspaceId),
-        repository.listEligibleReminderRecipients(workspace.workspaceId),
       ])
       setTasks(nextTasks)
       setLabels(nextLabels)
       setMembers(nextMembers)
-      setReminderRecipients(nextReminderRecipients)
       hasLoaded.current = true
       setError(null)
     } catch (reason) {
@@ -322,7 +318,6 @@ export function CalendarPage({ repository }: { repository: TaskRepository }) {
           initialDraft={editor.draft}
           labels={labels}
           members={members}
-          reminderRecipients={reminderRecipients}
           repository={repository}
           workspaceId={workspace.workspaceId}
           onSave={save}

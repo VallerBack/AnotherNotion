@@ -6,7 +6,7 @@ import type {
   TaskPriority,
   TaskScheduleKind,
   TaskStatus,
-  TaskReminderStatus,
+  ChannelReminderStatus,
 } from '../types/database'
 
 export type TaskView = 'today' | 'calendar' | 'all' | 'mine' | 'trash'
@@ -52,17 +52,14 @@ export type TaskComment = {
   updatedAt: string
   updatedBy: string | null
 }
-export type ReminderRecipient = { userId: string; displayName: string; canReceiveEmail: boolean }
-export type TaskReminderDraft = { enabled: boolean; recipientUserIds: string[]; remindAt: string | null }
+export type TaskReminderDraft = { enabled: boolean; remindAt: string | null }
 export type TaskReminder = {
   id: string
-  taskId: string | null
-  recipientUserId: string
+  taskId: string
   remindAt: string
-  status: TaskReminderStatus
-  attemptCount: number
-  sentAt: string | null
-  lastError: string | null
+  status: ChannelReminderStatus
+  exportAttemptCount: number
+  exportedAt: string | null
   createdAt: string
 }
 
@@ -83,11 +80,11 @@ export interface TaskRepository {
   addComment(workspaceId: string, taskId: string, userId: string, bodyMd: string): Promise<void>
   updateComment(commentId: string, bodyMd: string): Promise<void>
   deleteComment(commentId: string): Promise<void>
-  listEligibleReminderRecipients(workspaceId: string): Promise<ReminderRecipient[]>
   listTaskReminders(workspaceId: string, taskId: string): Promise<TaskReminder[]>
-  createTaskReminders(taskId: string, recipientUserIds: string[], remindAt: string): Promise<void>
+  createTaskReminders(taskId: string, remindAt: string): Promise<void>
   cancelTaskReminder(reminderId: string): Promise<void>
   rescheduleTaskReminder(reminderId: string, remindAt: string): Promise<void>
+  reexportTaskReminder(reminderId: string): Promise<void>
   subscribeWorkspace?(workspaceId: string, onChange: () => void): () => void
 }
 
@@ -244,10 +241,9 @@ export class SupabaseTaskRepository implements TaskRepository {
 
   async createTask(workspaceId: string, userId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {
     void userId
-    const response = await this.client.rpc('create_task_with_reminders_v2', {
+    const response = await this.client.rpc('create_task_with_channel_reminder_v2', {
       p_workspace_id: workspaceId, p_task: toTaskWrite(draft), p_label_ids: draft.labelIds,
       p_assignee_ids: draft.assigneeIds,
-      p_recipient_user_ids: reminder?.enabled ? reminder.recipientUserIds : [],
       p_remind_at: reminder?.enabled ? reminder.remindAt : null,
     })
     const taskId = ensure(response.data, response.error)
@@ -257,10 +253,9 @@ export class SupabaseTaskRepository implements TaskRepository {
 
   async updateTask(taskId: string, draft: TaskDraft, reminder?: TaskReminderDraft) {
     if (reminder) {
-      const { error } = await this.client.rpc('update_task_with_reminders_v2', {
+      const { error } = await this.client.rpc('update_task_with_channel_reminder_v2', {
         p_task_id: taskId, p_task: toTaskWrite(draft), p_label_ids: draft.labelIds,
         p_assignee_ids: draft.assigneeIds,
-        p_recipient_user_ids: reminder.enabled ? reminder.recipientUserIds : [],
         p_remind_at: reminder.enabled ? reminder.remindAt : null,
       })
       if (error) throw toDataError(error)
@@ -402,62 +397,53 @@ export class SupabaseTaskRepository implements TaskRepository {
     if (error) throw toDataError(error)
   }
 
-  async listEligibleReminderRecipients(workspaceId: string) {
-    const response = await this.client.rpc('list_reminder_recipient_capabilities', {
-      p_workspace_id: workspaceId,
-    })
-    return ensure(response.data, response.error).map((recipient) => ({
-      userId: recipient.user_id,
-      displayName: recipient.display_name,
-      canReceiveEmail: recipient.can_receive_email,
-    }))
-  }
-
   async listTaskReminders(workspaceId: string, taskId: string) {
-    const response = await this.client.from('task_reminders')
-      .select('id, task_id, recipient_user_id, remind_at, status, attempt_count, sent_at, last_error, created_at')
+    const response = await this.client.from('channel_reminders')
+      .select('id, task_id, remind_at, status, export_attempt_count, exported_at, created_at')
       .eq('workspace_id', workspaceId)
       .eq('task_id', taskId)
       .order('remind_at')
     return ensure(response.data, response.error).map((reminder) => ({
       id: reminder.id,
       taskId: reminder.task_id,
-      recipientUserId: reminder.recipient_user_id,
       remindAt: reminder.remind_at,
       status: reminder.status,
-      attemptCount: reminder.attempt_count,
-      sentAt: reminder.sent_at,
-      lastError: reminder.last_error,
+      exportAttemptCount: reminder.export_attempt_count,
+      exportedAt: reminder.exported_at,
       createdAt: reminder.created_at,
     }))
   }
 
-  async createTaskReminders(taskId: string, recipientUserIds: string[], remindAt: string) {
-    const { error } = await this.client.rpc('create_task_reminders', {
+  async createTaskReminders(taskId: string, remindAt: string) {
+    const { error } = await this.client.rpc('set_task_channel_reminder', {
       p_task_id: taskId,
-      p_recipient_user_ids: recipientUserIds,
       p_remind_at: remindAt,
     })
     if (error) throw toDataError(error)
   }
 
   async cancelTaskReminder(reminderId: string) {
-    const { error } = await this.client.rpc('cancel_task_reminder', { p_reminder_id: reminderId })
+    const { error } = await this.client.rpc('cancel_channel_reminder', { p_reminder_id: reminderId })
     if (error) throw toDataError(error)
   }
 
   async rescheduleTaskReminder(reminderId: string, remindAt: string) {
-    const { error } = await this.client.rpc('reschedule_task_reminder', {
+    const { error } = await this.client.rpc('reschedule_channel_reminder', {
       p_reminder_id: reminderId,
       p_remind_at: remindAt,
     })
     if (error) throw toDataError(error)
   }
 
+  async reexportTaskReminder(reminderId: string) {
+    const { error } = await this.client.rpc('reexport_channel_reminder', { p_reminder_id: reminderId })
+    if (error) throw toDataError(error)
+  }
+
   subscribeWorkspace(workspaceId: string, onChange: () => void) {
     this.channelSequence += 1
     const channel = this.client.channel(`workspace:${workspaceId}:${this.channelSequence}`)
-    for (const table of ['tasks', 'labels', 'task_labels', 'task_assignees', 'comments', 'task_reminders'] as const) {
+    for (const table of ['tasks', 'labels', 'task_labels', 'task_assignees', 'comments', 'channel_reminders'] as const) {
       channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table, filter: `workspace_id=eq.${workspaceId}` },

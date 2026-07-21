@@ -65,7 +65,6 @@ class TaskRepositoryMock implements TaskRepository {
   tasks: TaskRecord[] = []
   reminders = [] as Awaited<ReturnType<TaskRepository['listTaskReminders']>>
   comments = [] as Awaited<ReturnType<TaskRepository['listComments']>>
-  reminderRecipients = [{ userId: 'user-1', displayName: '成员', canReceiveEmail: true }]
   labels = [] as WorkspaceLabel[]
   members = [{ userId: 'user-1', displayName: '成员' }]
   error: Error | null = null
@@ -99,11 +98,11 @@ class TaskRepositoryMock implements TaskRepository {
   addComment = vi.fn(async () => undefined)
   updateComment = vi.fn(async () => undefined)
   deleteComment = vi.fn(async () => undefined)
-  listEligibleReminderRecipients = vi.fn(async () => this.reminderRecipients)
   listTaskReminders = vi.fn(async () => this.reminders)
   createTaskReminders = vi.fn(async () => undefined)
   cancelTaskReminder = vi.fn(async () => undefined)
   rescheduleTaskReminder = vi.fn(async () => undefined)
+  reexportTaskReminder = vi.fn(async () => undefined)
   subscribeWorkspace = vi.fn((_workspaceId: string, onChange: () => void) => {
     this.realtimeCallbacks.add(onChange)
     return () => { this.realtimeCallbacks.delete(onChange) }
@@ -135,9 +134,9 @@ describe('核心任务模块', () => {
     }]
     repository.labels = [{ id: 'label-1', name: '发布', color: '#ef4444' }]
     repository.reminders = [{
-      id: 'reminder-1', taskId: 'task-1', recipientUserId: 'user-1',
+      id: 'reminder-1', taskId: 'task-1',
       remindAt: '2026-07-20T00:30:00.000Z', status: 'pending',
-      attemptCount: 0, sentAt: null, lastError: null,
+      exportAttemptCount: 0, exportedAt: null,
       createdAt: '2026-07-19T00:00:00.000Z',
     }]
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
@@ -385,61 +384,6 @@ describe('核心任务模块', () => {
     expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
   })
 
-  it('工作区成员可以为多个合格收件人创建 UTC 邮件提醒', async () => {
-    window.location.hash = '#/tasks'
-    const repository = new TaskRepositoryMock()
-    repository.tasks = [task]
-    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
-    const user = userEvent.setup()
-
-    await user.click(await screen.findByRole('link', { name: '提醒与评论' }))
-    expect(await screen.findByRole('heading', { name: '准备发布' })).toBeInTheDocument()
-    await user.type(screen.getByLabelText(/提醒时间/), '2030-01-02T03:04')
-    await user.click(screen.getByRole('checkbox', { name: /成员/ }))
-    await user.click(screen.getByRole('button', { name: '创建提醒' }))
-
-    await waitFor(() => expect(repository.createTaskReminders).toHaveBeenCalledWith(
-      'task-1', ['user-1'], '2030-01-02T03:04:00.000Z',
-    ))
-  })
-
-  it('无日期任务不能启用提醒，邮箱未就绪成员不可选择', async () => {
-    const repository = new TaskRepositoryMock()
-    repository.reminderRecipients = [{ userId: 'user-2', displayName: '未验证成员', canReceiveEmail: false }]
-    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '创建任务' }))
-
-    expect(screen.getByRole('checkbox', { name: '启用邮件提醒' })).toBeDisabled()
-    await user.selectOptions(screen.getByLabelText('日期类型'), 'timed')
-    await user.click(screen.getByRole('checkbox', { name: '启用邮件提醒' }))
-    expect(screen.queryByText('未验证成员')).not.toBeInTheDocument()
-    expect(screen.queryByText(/@/)).not.toBeInTheDocument()
-  })
-
-  it('创建任务时为多个收件人提交同一个 UTC 提醒时刻', async () => {
-    const repository = new TaskRepositoryMock()
-    repository.reminderRecipients = [
-      { userId: 'user-1', displayName: '成员', canReceiveEmail: true },
-      { userId: 'user-2', displayName: '成员二', canReceiveEmail: true },
-    ]
-    render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '创建任务' }))
-    await user.type(screen.getByLabelText('标题'), '提醒任务')
-    await user.selectOptions(screen.getByLabelText('日期类型'), 'timed')
-    await user.type(screen.getByLabelText('开始时间'), '2030-01-02T03:04')
-    await user.click(screen.getByRole('checkbox', { name: '启用邮件提醒' }))
-    await user.selectOptions(screen.getByLabelText(/提醒时间/), 'one_hour')
-    await user.click(screen.getByRole('checkbox', { name: /成员二/ }))
-    await user.click(screen.getByRole('button', { name: '保存任务' }))
-
-    await waitFor(() => expect(repository.createTask).toHaveBeenCalledWith(
-      'workspace-1', 'user-1', expect.objectContaining({ title: '提醒任务' }),
-      { enabled: true, recipientUserIds: ['user-1', 'user-2'], remindAt: '2030-01-02T02:04:00.000Z' },
-    ))
-  })
-
   it('活动页可直接访问，Realtime 刷新不会产生重复评论', async () => {
     window.location.hash = '#/tasks/task-1/activity'
     const repository = new TaskRepositoryMock()
@@ -501,62 +445,33 @@ describe('核心任务模块', () => {
     await waitFor(() => expect(repository.deleteComment).toHaveBeenCalledWith('comment-1'))
   })
 
-  it('活动页提醒支持全部负责人、取消、改期和重新启用，已发送提醒只读', async () => {
-    window.location.hash = '#/tasks/task-1/activity'
+  it('创建任务时只提交一条频道提醒且不要求收件人', async () => {
+    window.location.hash = '#/tasks'
     const repository = new TaskRepositoryMock()
-    repository.tasks = [{ ...task, assigneeIds: ['user-1', 'user-2'] }]
-    repository.reminderRecipients = [
-      { userId: 'user-1', displayName: '成员一', canReceiveEmail: true },
-      { userId: 'user-2', displayName: '成员二', canReceiveEmail: true },
-      { userId: 'user-3', displayName: '未验证成员', canReceiveEmail: false },
-    ]
-    repository.reminders = [
-      { id: 'pending-1', taskId: task.id, recipientUserId: 'user-1', remindAt: '2030-01-02T03:04:00.000Z', status: 'pending', attemptCount: 0, sentAt: null, lastError: null, createdAt: '2026-07-20T01:00:00.000Z' },
-      { id: 'cancelled-1', taskId: task.id, recipientUserId: 'user-2', remindAt: '2030-01-02T04:04:00.000Z', status: 'cancelled', attemptCount: 0, sentAt: null, lastError: null, createdAt: '2026-07-20T01:00:00.000Z' },
-      { id: 'sent-1', taskId: task.id, recipientUserId: 'user-1', remindAt: '2026-01-02T03:04:00.000Z', status: 'sent', attemptCount: 1, sentAt: '2026-01-02T03:04:00.000Z', lastError: null, createdAt: '2026-01-01T01:00:00.000Z' },
-    ]
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
     const user = userEvent.setup()
-
-    await user.click(await screen.findByRole('button', { name: '选择全部负责人' }))
-    expect(screen.getByRole('checkbox', { name: '成员一' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '成员二' })).toBeChecked()
-    expect(screen.queryByText('未验证成员')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: '取消' }))
-    await waitFor(() => expect(repository.cancelTaskReminder).toHaveBeenCalledWith('pending-1'))
-    await user.click(screen.getByRole('button', { name: '重新启用' }))
-    const dateInputs = screen.getAllByLabelText(/新的提醒时间/)
-    fireEvent.change(dateInputs[0], { target: { value: '2031-01-02T03:04' } })
-    await user.click(screen.getByRole('button', { name: '重新启用' }))
-    await waitFor(() => expect(repository.rescheduleTaskReminder).toHaveBeenCalledWith('cancelled-1', '2031-01-02T03:04:00.000Z'))
-    expect(screen.getAllByText('已发送')).toHaveLength(1)
+    await user.click(await screen.findByRole('button', { name: '创建任务' }))
+    await user.type(screen.getByLabelText('标题'), '频道任务')
+    await user.selectOptions(screen.getByLabelText('日期类型'), 'timed')
+    await user.type(screen.getByLabelText('开始时间'), '2030-01-02T03:04')
+    await user.click(screen.getByRole('checkbox', { name: '启用频道提醒' }))
+    await user.selectOptions(screen.getByLabelText(/提醒时间/), 'one_hour')
+    await user.click(screen.getByRole('button', { name: '保存任务' }))
+    await waitFor(() => expect(repository.createTask).toHaveBeenCalledWith(
+      'workspace-1', 'user-1', expect.objectContaining({ title: '频道任务' }),
+      { enabled: true, remindAt: '2030-01-02T02:04:00.000Z' },
+    ))
+    expect(screen.queryByText('收件人')).not.toBeInTheDocument()
   })
 
-  it('活动页提醒启用时要求有效时间和至少一个收件人', async () => {
+  it('已导出的频道提醒可显式重新导出', async () => {
     window.location.hash = '#/tasks/task-1/activity'
     const repository = new TaskRepositoryMock()
     repository.tasks = [task]
+    repository.reminders = [{ id: 'exported-1', taskId: task.id, remindAt: '2030-01-02T03:04:00.000Z', status: 'exported', exportAttemptCount: 1, exportedAt: '2026-07-20T01:00:00.000Z', createdAt: '2026-07-20T00:00:00.000Z' }]
     render(<AuthApp gateway={new AuthMock()} taskRepository={repository} />)
     const user = userEvent.setup()
-
-    await user.type(await screen.findByLabelText(/提醒时间/), '2030-01-02T03:04')
-    await user.click(screen.getByRole('button', { name: '创建提醒' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('至少一位')
-    expect(repository.createTaskReminders).not.toHaveBeenCalled()
-  })
-
-  it('设置和任务编辑器的邮件提醒开关使用同一行 flex 布局类', async () => {
-    window.location.hash = '#/settings'
-    const view = render(<AuthApp gateway={new AuthMock()} taskRepository={new TaskRepositoryMock()} />)
-    const settingsToggle = await screen.findByRole('checkbox', { name: '启用邮件提醒' })
-    expect(settingsToggle.closest('label')).toHaveClass('reminder-toggle-row')
-
-    view.unmount()
-    window.location.hash = '#/tasks'
-    render(<AuthApp gateway={new AuthMock()} taskRepository={new TaskRepositoryMock()} />)
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: '创建任务' }))
-    expect(screen.getByRole('checkbox', { name: '启用邮件提醒' }).closest('label')).toHaveClass('reminder-toggle-row')
+    await user.click(await screen.findByRole('button', { name: '重新导出' }))
+    await waitFor(() => expect(repository.reexportTaskReminder).toHaveBeenCalledWith('exported-1'))
   })
 })

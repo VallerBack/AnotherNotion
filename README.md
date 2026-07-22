@@ -65,6 +65,7 @@ Supabase Edge Functions 使用的服务端 Secrets：
 - `SUPABASE_SECRET_KEY`（旧项目可使用 `SUPABASE_SERVICE_ROLE_KEY`）
 - `APP_URL`
 - `REMINDER_FEED_TOKEN`
+- `REMINDER_JSON_AES_KEY`（标准 Base64 编码的 32 字节 AES 密钥，仅供 GitHub Actions 生成静态快照）
 
 服务端变量只能配置在 Supabase Secrets 或 Vault 中，不能写入前端环境变量、仓库文件或 GitHub Pages 构建产物。
 
@@ -94,6 +95,14 @@ https://<github-user>.github.io/AnotherNotion/
 - 领取采用一次性导出语义；“已导出”只表示数据已经交给频道服务，不代表 Discord 或 QQ 最终送达。
 - `APP_URL` 用于生成 GitHub Pages HashRouter 任务详情地址。
 - 外部机器人只获得安全的纯文字内容，不会获得邮箱、用户 UUID、工作区 UUID 或内部密钥。
+
+GitHub Pages 部署还会生成 `dist/reminders.json`：定时工作流读取旧线上快照，并仅在 schedule 事件中领取新的 Feed 项目。每条记录只有 `content` 使用 AES-256-GCM 独立加密，格式为 `A256GCM.v1.<Base64(IV || TAG || CIPHERTEXT)>`。该文件只进入 Pages artifact，不提交到 Git。GitHub Actions 的 schedule 可能因平台负载延迟，不是精确的五分钟定时器。
+
+管理员可在本地设置 `REMINDER_JSON_AES_KEY` 后，使用以下示例解密单条 `content`；不要把真实密钥写入命令历史或仓库：
+
+```bash
+node scripts/decrypt_reminder_content.example.mjs "A256GCM.v1.<encrypted-value>"
+```
 
 ## 数据库与安全
 

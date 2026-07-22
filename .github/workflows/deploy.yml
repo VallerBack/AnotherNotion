@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '2-59/5 * * * *'
 
 permissions:
   contents: read
@@ -11,11 +13,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: github-pages
-  cancel-in-progress: true
+  group: github-pages-reminder-snapshot
+  cancel-in-progress: false
 
 jobs:
   build:
+    outputs:
+      should_deploy: ${{ steps.snapshot.outputs.should_deploy }}
     runs-on: ubuntu-latest
     env:
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
@@ -53,12 +57,25 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build encrypted reminder snapshot
+        id: snapshot
+        env:
+          REMINDER_FEED_TOKEN: ${{ secrets.REMINDER_FEED_TOKEN }}
+          REMINDER_JSON_AES_KEY: ${{ secrets.REMINDER_JSON_AES_KEY }}
+          SNAPSHOT_FETCH_FEED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
+          SNAPSHOT_FORCE_DEPLOY: ${{ github.event_name != 'schedule' && 'true' || 'false' }}
+          SNAPSHOT_OUTPUT_FILE: dist/reminders.json
+          SNAPSHOT_PREVIOUS_URL: https://vallerback.github.io/AnotherNotion/reminders.json
+        run: node scripts/build_reminder_snapshot.mjs
+
       - name: Upload Pages artifact
+        if: steps.snapshot.outputs.should_deploy == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
   deploy:
+    if: needs.build.outputs.should_deploy == 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

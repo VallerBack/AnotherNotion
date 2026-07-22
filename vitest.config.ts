@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'tests/reminder-snapshot.test.mjs'],
     setupFiles: ['./tests/setup.ts'],
     css: true,
   },

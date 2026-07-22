@@ -10,6 +10,7 @@ import {
   decryptContent,
   encryptContent,
   mergeSnapshots,
+  snapshotEventPolicy,
   validateFeed,
   validateOldSnapshot,
 } from '../scripts/reminder_snapshot_lib.mjs'
@@ -100,6 +101,54 @@ describe('snapshot validation and merge', () => {
     expect(Array.isArray(JSON.parse(output))).toBe(true)
     expect(output).not.toContain('第一行')
     expect(result.items[0].contentEncoding).toBe(CONTENT_ENCODING)
+  })
+})
+
+describe('GitHub event behavior', () => {
+  it('push preserves the previous snapshot without consuming the feed', () => {
+    expect(snapshotEventPolicy('push')).toEqual({ fetchFeed: false, forceDeploy: true })
+  })
+
+  it('schedule consumes the feed and deploys only when the snapshot changes', () => {
+    expect(snapshotEventPolicy('schedule')).toEqual({ fetchFeed: true, forceDeploy: false })
+  })
+
+  it('workflow_dispatch consumes the feed and performs a full deployment', () => {
+    expect(snapshotEventPolicy('workflow_dispatch')).toEqual({ fetchFeed: true, forceDeploy: true })
+  })
+
+  it('workflow declares push, schedule, dispatch, and the matching feed condition', async () => {
+    const workflow = await readFile(join(process.cwd(), '.github', 'workflows', 'deploy.yml'), 'utf8')
+    expect(workflow).toMatch(/push:\s*\n\s+branches: \[main\]/)
+    expect(workflow).toMatch(/workflow_dispatch:\s*\n/)
+    expect(workflow).toMatch(/schedule:\s*\n\s+- cron: '2-59\/5 \* \* \* \*'/)
+    expect(workflow).toMatch(/github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'/)
+    expect(workflow).toMatch(/cancel-in-progress: false/)
+  })
+
+  it.each([
+    ['push', 1],
+    ['schedule', 2],
+    ['workflow_dispatch', 2],
+  ])('%s performs the expected number of HTTP requests', async (eventName, expectedCalls) => {
+    const policy = snapshotEventPolicy(eventName)
+    const requests = []
+    const fetchImpl = async (url) => {
+      requests.push(url)
+      if (requests.length === 1) return new Response(JSON.stringify([]), { status: 200 })
+      return new Response(JSON.stringify([plain()]), { status: 200 })
+    }
+    const result = await buildSnapshotData({
+      fetchImpl,
+      previousUrl: 'https://example.test/reminders.json',
+      feedUrl: 'https://example.test/feed',
+      feedToken: 'test-token',
+      key,
+      fetchFeed: policy.fetchFeed,
+      now: new Date('2026-07-22T00:00:00Z'),
+    })
+    expect(requests).toHaveLength(expectedCalls)
+    expect(result.feedCount).toBe(policy.fetchFeed ? 1 : 0)
   })
 })
 

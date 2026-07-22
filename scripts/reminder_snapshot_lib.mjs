@@ -9,6 +9,13 @@ export const MAX_CONTENT_CHARS = 1800
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
+export function snapshotEventPolicy(eventName) {
+  if (eventName === 'push') return { fetchFeed: false, forceDeploy: true }
+  if (eventName === 'schedule') return { fetchFeed: true, forceDeploy: false }
+  if (eventName === 'workflow_dispatch') return { fetchFeed: true, forceDeploy: true }
+  throw new Error('Unsupported GitHub event')
+}
+
 export function decodeAesKey(value) {
   if (typeof value !== 'string' || !BASE64_PATTERN.test(value)) throw new Error('REMINDER_JSON_AES_KEY must be canonical Base64')
   const key = Buffer.from(value, 'base64')
@@ -147,7 +154,7 @@ export async function buildSnapshotData({ fetchImpl, previousUrl, feedUrl, feedT
   if (fetchFeed) {
     feedItems = validateFeed(await fetchJson(fetchImpl, feedUrl, { headers: { 'X-Feed-Token': feedToken } }))
   }
-  return mergeSnapshots(oldItems, feedItems, key, now)
+  return { ...mergeSnapshots(oldItems, feedItems, key, now), oldCount: oldItems.length, feedCount: feedItems.length }
 }
 
 export async function assertSecretsAbsent(directory, secretValues) {

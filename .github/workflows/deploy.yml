@@ -62,7 +62,7 @@ jobs:
         env:
           REMINDER_FEED_TOKEN: ${{ secrets.REMINDER_FEED_TOKEN }}
           REMINDER_JSON_AES_KEY: ${{ secrets.REMINDER_JSON_AES_KEY }}
-          SNAPSHOT_FETCH_FEED: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
+          SNAPSHOT_FETCH_FEED: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'true' || 'false' }}
           SNAPSHOT_FORCE_DEPLOY: ${{ github.event_name != 'schedule' && 'true' || 'false' }}
           SNAPSHOT_OUTPUT_FILE: dist/reminders.json
           SNAPSHOT_PREVIOUS_URL: https://vallerback.github.io/AnotherNotion/reminders.json
